@@ -1,0 +1,19 @@
+services:
+  fuseki:
+    image: stain/jena-fuseki:latest
+    command: ["--update", "--mem", "/knowledge-atlas"]
+    ports:
+      - "3030:3030"
+    environment:
+      ADMIN_PASSWORD: admin
+    volumes:
+      - fuseki-data:/fuseki
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3030/$/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+volumes:
+  fuseki-data:

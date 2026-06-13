@@ -6,6 +6,7 @@ import pytest
 
 from catalog.semantic.config import LLMConfig, load_llm_config
 from catalog.semantic.providers import (
+    ClaudeProvider,
     OllamaProvider,
     OpenAIProvider,
     available_providers,
@@ -36,6 +37,19 @@ def test_build_provider_ollama_from_config():
     assert provider.host == "http://h:1"
 
 
+def test_build_provider_claude_from_config():
+    cfg = LLMConfig(
+        provider="claude",
+        model="claude-sonnet-4-5",
+        options={"base_url": "http://anthropic/v1", "max_tokens": 123},
+    )
+    provider = build_provider(cfg)
+    assert isinstance(provider, ClaudeProvider)
+    assert provider.model == "claude-sonnet-4-5"
+    assert provider.base_url == "http://anthropic/v1"
+    assert provider.max_tokens == 123
+
+
 def test_build_provider_openai_from_config():
     cfg = LLMConfig(provider="openai", model="gpt-5.5", options={"base_url": "http://api/v9"})
     provider = build_provider(cfg)
@@ -49,14 +63,14 @@ def test_build_provider_unknown_raises():
         build_provider(LLMConfig(provider="does-not-exist", model="x"))
 
 
-def test_available_providers_lists_both():
-    assert set(available_providers()) >= {"ollama", "openai"}
+def test_available_providers_lists_supported_backends():
+    assert set(available_providers()) >= {"claude", "ollama", "openai"}
 
 
 def test_load_llm_config_defaults_when_missing(tmp_path):
     cfg = load_llm_config(tmp_path / "absent.yml")
-    assert cfg.provider == "ollama"
-    assert cfg.model == "qwen3:14b"
+    assert cfg.provider == "claude"
+    assert cfg.model == "claude-sonnet-4-5"
 
 
 def test_load_llm_config_reads_selected_provider(tmp_path):
@@ -98,6 +112,29 @@ def test_ollama_generate_posts_and_parses(monkeypatch):
     assert captured["body"]["model"] == "qwen3:14b"
     assert captured["body"]["system"] == "sys"
     assert captured["body"]["stream"] is False
+
+
+def test_claude_generate_posts_and_parses(monkeypatch):
+    captured = {}
+    body = json.dumps(
+        {"content": [{"type": "text", "text": '{"document_type": "Brief"}'}]}
+    ).encode("utf-8")
+    with _fake_urlopen(captured, body) as opener:
+        monkeypatch.setattr("catalog.semantic.providers.claude_provider.request.urlopen", opener)
+        provider = ClaudeProvider("claude-sonnet-4-5", api_key="secret")
+        out = provider.generate("hello", system="sys")
+    assert out == '{"document_type": "Brief"}'
+    assert captured["url"].endswith("/messages")
+    assert captured["headers"]["X-api-key"] == "secret"
+    assert captured["headers"]["Anthropic-version"] == "2023-06-01"
+    assert captured["body"]["system"] == "sys"
+    assert captured["body"]["messages"][0]["role"] == "user"
+
+
+def test_claude_without_key_raises():
+    provider = ClaudeProvider("claude-sonnet-4-5", api_key="")
+    with pytest.raises(LLMError):
+        provider.generate("hi")
 
 
 def test_openai_generate_posts_and_parses(monkeypatch):

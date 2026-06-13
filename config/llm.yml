@@ -1,0 +1,30 @@
+# LLM provider configuration for the semantic classification layer.
+#
+# This phase uses an LLM to *propose* structured knowledge (classifications,
+# observations, hypotheses, candidate relationships) from extracted documents.
+# Nothing produced here is a fact - every output carries a confidence score and
+# starts life with review_status = NEW for a human to approve later.
+#
+# Choose the active provider with ``provider``. Each provider has its own block
+# so adding a new one later (Azure OpenAI, Anthropic, vLLM, ...) only means
+# adding a block here and a small BaseLLMProvider subclass.
+
+provider: ollama
+
+ollama:
+  model: qwen3:14b
+  # Base URL of a running Ollama server.
+  host: http://localhost:11434
+  # Per-request timeout in seconds.
+  timeout: 120
+
+openai:
+  model: gpt-5.5
+  # The API key is read from the OPENAI_API_KEY environment variable, never
+  # stored in this file.
+  base_url: https://api.openai.com/v1
+  timeout: 120
+
+# Hard cap on how much extracted text is sent to the model per document. Longer
+# documents are truncated; classification works on the head of the document.
+max_input_chars: 12000

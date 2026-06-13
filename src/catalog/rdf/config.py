@@ -32,6 +32,17 @@ class FusekiConfig:
     def update_url(self) -> str:
         return f"{self.endpoint.rstrip('/')}/update"
 
+    @property
+    def query_url(self) -> str:
+        """The SPARQL *query* endpoint, derived as ``<endpoint>/sparql``.
+
+        Fuseki exposes a dataset's read endpoint at both ``/sparql`` and
+        ``/query``; ``/sparql`` is the conventional default the Knowledge
+        Explorer reads from.
+        """
+
+        return f"{self.endpoint.rstrip('/')}/sparql"
+
     @classmethod
     def defaults(cls) -> "FusekiConfig":
         return cls()

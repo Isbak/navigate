@@ -1,0 +1,13 @@
+# The most common relationship predicates in the approved graph, by count.
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+
+SELECT ?predicate (COUNT(*) AS ?count)
+WHERE {
+    ?source ?predicate ?target .
+    FILTER(?predicate IN (
+        kg:supports, kg:dependsOn, kg:implements, kg:affects,
+        kg:relatedTo, kg:ownedBy, kg:mentions, kg:references
+    ))
+}
+GROUP BY ?predicate
+ORDER BY DESC(?count)

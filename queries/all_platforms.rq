@@ -1,0 +1,11 @@
+# All approved platforms, most confident first.
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?platform ?label ?confidence
+WHERE {
+    ?platform a kg:Platform .
+    OPTIONAL { ?platform rdfs:label ?label }
+    OPTIONAL { ?platform kg:confidence ?confidence }
+}
+ORDER BY DESC(?confidence)

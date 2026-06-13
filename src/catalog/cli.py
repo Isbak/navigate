@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .db import connect, init_db, latest_scan_run
 from .extraction import extract_all
+from .graph.cli import add_graph_parser, run_graph
 from .links import discover_links, load_link_config
 from .links import repository as link_repo
 from .scanner import scan
@@ -134,6 +135,9 @@ def build_parser() -> argparse.ArgumentParser:
     fuseki.add_argument("--out", default=RDF_OUT_DIR)
 
     sub.add_parser("fuseki-clear")
+
+    # -- knowledge explorer and SPARQL query layer (Prompt #8) --
+    add_graph_parser(sub)
     return parser
 
 
@@ -778,6 +782,8 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_fuseki_load(args)
     elif args.command == "fuseki-clear":
         _cmd_fuseki_clear(args)
+    elif args.command == "graph":
+        run_graph(args)
     return 0
 
 

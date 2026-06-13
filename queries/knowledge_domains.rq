@@ -1,0 +1,11 @@
+# Knowledge domains: object count per type (the graph's natural domains).
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+
+SELECT ?type (COUNT(?object) AS ?objects)
+WHERE {
+    ?object a ?type .
+    FILTER(STRSTARTS(STR(?type), "https://knowledge-atlas.local/kg/"))
+    FILTER(?type != kg:Evidence)
+}
+GROUP BY ?type
+ORDER BY DESC(?objects)

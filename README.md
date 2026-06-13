@@ -637,17 +637,90 @@ PREFIX kg: <https://knowledge-atlas.local/kg/>
 SELECT ?capability WHERE { ?capability a kg:Capability . }
 ```
 
+## Knowledge Explorer and SPARQL query layer
+
+The `catalog.graph` package is a **query and exploration layer over the approved
+knowledge graph**. Its job is to let you discover, navigate, inspect, and
+*validate* knowledge using only SPARQL, graph algorithms, and graph metrics —
+explicitly **before** (and without) any GraphRAG, LLM, vector search, or
+embeddings. The graph must prove its usefulness on its own first.
+
+```
+SQLite (system of record) → RDF projection → GraphClient (SPARQL)
+                                           → NetworkX (algorithms)
+```
+
+By default every `catalog graph` command rebuilds the approved RDF projection
+in memory straight from SQLite and runs **real SPARQL** against it with rdflib —
+so nothing here needs a running server. Add `--fuseki` to route the same SPARQL
+to a live Apache Jena Fuseki endpoint (`config/jena.yml`) instead.
+
+### The query layer
+
+`GraphClient` (`catalog.graph.client`) executes SPARQL and manages the on-disk
+query library: `execute_query()`, `load_query()`, `list_queries()`,
+`save_query()`. The library lives in `queries/` as `.rq` files —
+`all_capabilities`, `all_decisions`, `all_teams`, `all_platforms`,
+`related_objects`, `top_relationships`, `object_dependencies`,
+`knowledge_domains`, `evidence_for_object`, and more.
+
+- `catalog graph query` — list the saved queries.
+- `catalog graph query <name>` — run one, e.g. `catalog graph query all_capabilities`.
+
+### Exploration commands
+
+- `catalog graph search "release"` — search `rdfs:label` / description, returning
+  matching objects, their types, and relationship counts.
+- `catalog graph show <id>` — object detail: name, type, description, confidence,
+  connected objects (grouped by relationship), evidence count, relationship count.
+- `catalog graph neighbors <id>` — connected objects grouped by relationship type.
+- `catalog graph path <id1> <id2>` — shortest path between two objects.
+- `catalog graph impact <id>` — what may be affected by a change, grouped by type
+  (connected capabilities, decisions, teams, platforms, …).
+
+### Validation and analysis
+
+- `catalog graph health` — knowledge validation: objects without relationships or
+  evidence, relationships without evidence, low-confidence objects, duplicate
+  candidates, disconnected subgraphs, and the most connected nodes.
+- `catalog graph domains` — knowledge domains (by object type) with object counts,
+  relationship counts, and the most central concept in each.
+- `catalog graph metrics` — NetworkX analysis (degree & betweenness centrality,
+  connected components, density, clusters); prints the most central objects and
+  writes the visualization bundle `exports/graph/{nodes,edges,metrics}.json`.
+
+### Graph export
+
+- `catalog graph export-gexf` — GEXF for **Gephi**.
+- `catalog graph export-graphml` — GraphML for **Neo4j** / yEd / Cytoscape.
+- `catalog graph export-json` — node-link JSON for **NetworkX** / D3.
+
+Files are written under `exports/graph/` (override with `--out DIR`).
+
+### Interactive explorer
+
+`catalog graph explore` opens a small Rich-powered, read-only terminal REPL —
+`search`, `show`, `neighbors`, `evidence` — over the same SPARQL layer.
+
+With this layer you can answer, **using only the graph**: what capabilities are
+connected to Release Governance, what decisions affect Salesforce, what the most
+central concepts are, what evidence supports a capability, and the shortest path
+between a team and a capability — proving the graph's usefulness before any AI
+layer is added.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without
 changing the scanner, extraction, or the semantic layer. These future modules
 are **not** implemented yet:
 
-- `graphrag_builder.py` — build a GraphRAG index.
-- a **visualization UI** consuming the `nodes.json` / `edges.json` graph export.
+- `graphrag_builder.py` — build a GraphRAG index. This is the deliberate **next**
+  phase: the Knowledge Explorer above exists to validate the graph first.
+- a **visualization UI** consuming the `exports/graph/{nodes,edges,metrics}.json`
+  bundle (and the GEXF / GraphML exports) the explorer now produces.
 
-The RDF projection and Jena/Fuseki loader described above are implemented in the
-`catalog.rdf` package.
+The RDF projection and Jena/Fuseki loader are implemented in the `catalog.rdf`
+package; the SPARQL query and exploration layer in the `catalog.graph` package.
 
 Earlier deterministic phases also remain open for extension: link resolution,
 broken-link checking, and fetching metadata from SharePoint/Confluence/ADO.

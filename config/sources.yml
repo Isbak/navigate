@@ -1,0 +1,13 @@
+sources:
+  - path: "~/Documents"
+    source_system: "local_laptop"
+  - path: "~/Desktop"
+    source_system: "local_laptop"
+  - path: "~/OneDrive"
+    source_system: "onedrive_sync"
+
+exclude:
+  - "**/.git/**"
+  - "**/node_modules/**"
+  - "**/~$*"
+  - "**/.DS_Store"

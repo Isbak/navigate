@@ -1,18 +1,38 @@
+"""Artifact scanner: discover supported documents and index their metadata.
+
+The scanner walks the configured source folders, computes stable, content
+addressed identities, detects what changed since the previous scan, and feeds
+records through an artifact queue into SQLite. Every processed artifact is
+published on a :class:`~catalog.events.ScanEventBus` so future extractors can
+subscribe without modifying the scanner.
+
+    scanner -> artifact queue -> database
+"""
+
 from __future__ import annotations
 
 import fnmatch
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 from .config import load_config
-from .db import connect, init_db, replace_links, upsert_artifact
-from .extractors import get_extractor
+from .db import (
+    connect,
+    existing_artifacts,
+    init_db,
+    mark_deleted,
+    record_scan_run,
+    upsert_artifact,
+)
+from .events import Artifact, ScanEvent, ScanEventBus, ScanStats, ScanStatus
 from .hashing import document_id, sha256_file
-import hashlib
-from .links import classify_target_system, classify_target_type, extract_links_from_text
+from .queue import ArtifactQueue
 
 LOGGER = logging.getLogger(__name__)
+
 SUPPORTED_EXTENSIONS = {".docx", ".pptx", ".xlsx", ".pdf", ".md", ".txt"}
 
 
@@ -20,103 +40,258 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _to_iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+
+
 def is_excluded(path: Path, patterns: list[str]) -> bool:
     value = path.as_posix()
-    return any(fnmatch.fnmatch(value, pattern) or fnmatch.fnmatch(path.name, pattern) for pattern in patterns)
+    return any(
+        fnmatch.fnmatch(value, pattern) or fnmatch.fnmatch(path.name, pattern)
+        for pattern in patterns
+    )
 
 
-def iter_documents(source: Path, exclude: list[str]):
+def iter_documents(source: Path, exclude: list[str]) -> Iterator[Path]:
+    """Yield supported, non-excluded files beneath ``source`` recursively."""
+
     if not source.exists():
         LOGGER.warning("Source path does not exist: %s", source)
         return
     for path in source.rglob("*"):
-        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS and not is_excluded(path, exclude):
+        if (
+            path.is_file()
+            and path.suffix.lower() in SUPPORTED_EXTENSIONS
+            and not is_excluded(path, exclude)
+        ):
             yield path
 
 
-def extract_text(path: Path) -> str:
-    if path.suffix.lower() in {".md", ".txt"}:
-        return path.read_text(encoding="utf-8", errors="replace")
-    extractor = get_extractor(path)
-    if extractor is None:
-        return ""
-    return extractor.extract_text(path)
+def _build_artifact(
+    path: Path,
+    source_system: str,
+    existing: dict[str, "object"],
+    scanned_at: str,
+) -> Artifact:
+    """Hash ``path``, read its metadata, and classify it against the index."""
 
-
-def unique_document_id(digest: str, path: Path, db_path: str | Path) -> str:
-    """Return a stable artifact ID while allowing same-content duplicate files.
-
-    The first observed file for a SHA-256 receives doc_<first_12_chars>. Additional
-    files with identical content receive a deterministic path suffix so the
-    artifacts table can keep one row per source path and duplicates remain
-    queryable by sha256.
-    """
-    base_id = document_id(digest)
-    init_db(db_path)
-    with connect(db_path) as conn:
-        row = conn.execute("SELECT path FROM artifacts WHERE id = ?", (base_id,)).fetchone()
-    if row is None or row["path"] == str(path):
-        return base_id
-    path_digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:8]
-    return f"{base_id}_{path_digest}"
-
-
-def scan_file(path: str | Path, source_system: str = "local_laptop", db_path: str | Path = "data/catalog.sqlite", cache_dir: str | Path = "cache") -> str:
-    path = Path(path).expanduser().resolve()
+    resolved = str(path)
     digest = sha256_file(path)
-    artifact_id = unique_document_id(digest, path, db_path)
     stat = path.stat()
-    scanned_at = utc_now()
-    artifact = {
-        "id": artifact_id,
-        "path": str(path),
-        "filename": path.name,
-        "file_type": path.suffix.lower().lstrip("."),
-        "size_bytes": stat.st_size,
-        "created_at": datetime.fromtimestamp(stat.st_ctime, timezone.utc).isoformat(),
-        "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-        "sha256": digest,
-        "source_system": source_system,
-        "scan_status": "indexed",
-        "last_scanned_at": scanned_at,
-    }
-    text = ""
-    try:
-        text = extract_text(path)
-    except Exception:
-        LOGGER.exception("Text extraction failed for %s", path)
-        artifact["scan_status"] = "metadata_only"
+    prior = existing.get(resolved)
 
-    artifact_cache = Path(cache_dir) / artifact_id
-    artifact_cache.mkdir(parents=True, exist_ok=True)
-    (artifact_cache / "extracted.txt").write_text(text, encoding="utf-8")
+    if prior is None:
+        lifecycle = ScanStatus.RAW
+        first_seen_at = scanned_at
+    elif prior["sha256"] == digest:
+        lifecycle = ScanStatus.UNCHANGED
+        first_seen_at = prior["first_seen_at"] or scanned_at
+    else:
+        lifecycle = ScanStatus.CHANGED
+        first_seen_at = prior["first_seen_at"] or scanned_at
 
-    links = []
-    for link in extract_links_from_text(text):
-        url = str(link["target_url"])
-        links.append({
-            "source_artifact_id": artifact_id,
-            "target_url": url,
-            "anchor_text": link.get("anchor_text"),
-            "target_system": classify_target_system(url),
-            "target_type": classify_target_type(url),
-            "discovered_at": scanned_at,
-        })
-
-    init_db(db_path)
-    with connect(db_path) as conn:
-        upsert_artifact(conn, artifact)
-        replace_links(conn, artifact_id, links)
-    LOGGER.info("Indexed %s as %s", path, artifact_id)
-    return artifact_id
+    return Artifact(
+        id=document_id(digest),
+        path=resolved,
+        filename=path.name,
+        file_type=path.suffix.lower().lstrip("."),
+        size_bytes=stat.st_size,
+        created_at=_to_iso(stat.st_ctime),
+        modified_at=_to_iso(stat.st_mtime),
+        sha256=digest,
+        source_system=source_system,
+        scan_status=lifecycle,
+        last_scanned_at=scanned_at,
+        first_seen_at=first_seen_at,
+        lifecycle=lifecycle,
+    )
 
 
-def scan(config_path: str | Path = "config/sources.yml", db_path: str | Path = "data/catalog.sqlite", cache_dir: str | Path = "cache") -> int:
-    cfg = load_config(config_path)
-    count = 0
-    for source in cfg.sources:
-        root = Path(source.path).expanduser()
-        for document in iter_documents(root, cfg.exclude) or []:
-            scan_file(document, source.source_system, db_path, cache_dir)
-            count += 1
-    return count
+def _flag_duplicates(artifacts: list[Artifact], existing: dict[str, "object"]) -> list[Artifact]:
+    """Mark every redundant copy of identical content as DUPLICATE.
+
+    For each group of files sharing a sha256 the "primary" keeps its lifecycle
+    status; the remaining copies become DUPLICATE. An already-indexed path is
+    preferred as the primary so a freshly-added copy is the one flagged.
+    """
+
+    by_sha: dict[str, list[Artifact]] = {}
+    for artifact in artifacts:
+        by_sha.setdefault(artifact.sha256, []).append(artifact)
+
+    result: list[Artifact] = []
+    for group in by_sha.values():
+        if len(group) == 1:
+            result.append(group[0])
+            continue
+        primary = min(
+            group,
+            key=lambda a: (a.path not in existing, a.path),
+        )
+        for artifact in group:
+            if artifact is primary:
+                result.append(artifact)
+            else:
+                result.append(
+                    Artifact(**{**artifact.__dict__, "scan_status": ScanStatus.DUPLICATE})
+                )
+    return result
+
+
+class Scanner:
+    """Orchestrates a scan: discovery -> artifact queue -> database + events."""
+
+    def __init__(
+        self,
+        db_path: str | Path = "data/catalog.sqlite",
+        event_bus: ScanEventBus | None = None,
+    ) -> None:
+        self.db_path = db_path
+        self.event_bus = event_bus or ScanEventBus()
+
+    # -- consumer ---------------------------------------------------------
+    def _consume(self, artifact_queue: ArtifactQueue, stats: ScanStats) -> None:
+        """Drain the queue on this thread, persisting and announcing each item."""
+
+        with connect(self.db_path) as conn:
+            for artifact in artifact_queue.drain():
+                if artifact.scan_status is ScanStatus.DELETED:
+                    mark_deleted(conn, artifact.path, artifact.last_scanned_at)
+                else:
+                    upsert_artifact(conn, artifact.to_row())
+                # Commit before notifying so subscribers (which open their own
+                # connections) don't deadlock against an open write transaction.
+                conn.commit()
+                stats.record(artifact)
+                self.event_bus.publish(ScanEvent(status=artifact.scan_status, artifact=artifact))
+                LOGGER.debug("%s %s (%s)", artifact.scan_status, artifact.path, artifact.id)
+
+    # -- public API -------------------------------------------------------
+    def scan(self, config_path: str | Path = "config/sources.yml") -> ScanStats:
+        cfg = load_config(config_path)
+        init_db(self.db_path)
+        started_at = utc_now()
+        scanned_at = started_at
+
+        with connect(self.db_path) as conn:
+            existing = existing_artifacts(conn)
+
+        # Producer: discover + classify on this thread.
+        discovered: list[Artifact] = []
+        seen_paths: set[str] = set()
+        for source in cfg.sources:
+            root = Path(source.path).expanduser()
+            for path in iter_documents(root, cfg.exclude):
+                resolved = str(path.resolve())
+                try:
+                    artifact = _build_artifact(
+                        path.resolve(), source.source_system, existing, scanned_at
+                    )
+                except OSError:
+                    LOGGER.exception("Failed to read %s", path)
+                    continue
+                discovered.append(artifact)
+                seen_paths.add(resolved)
+
+        discovered = _flag_duplicates(discovered, existing)
+
+        stats = ScanStats()
+        artifact_queue = ArtifactQueue()
+        consumer = threading.Thread(
+            target=self._consume, args=(artifact_queue, stats), name="artifact-writer"
+        )
+        consumer.start()
+
+        for artifact in discovered:
+            artifact_queue.put(artifact)
+
+        # Tombstones for paths that disappeared since the last scan.
+        for path, row in existing.items():
+            if path not in seen_paths and row["scan_status"] != ScanStatus.DELETED.value:
+                artifact_queue.put(
+                    Artifact(
+                        id=row["id"],
+                        path=path,
+                        filename=row["filename"],
+                        file_type=row["file_type"],
+                        size_bytes=row["size_bytes"],
+                        created_at=row["created_at"],
+                        modified_at=row["modified_at"],
+                        sha256=row["sha256"],
+                        source_system=row["source_system"],
+                        scan_status=ScanStatus.DELETED,
+                        last_scanned_at=scanned_at,
+                        first_seen_at=row["first_seen_at"] or scanned_at,
+                        lifecycle=ScanStatus.DELETED,
+                    )
+                )
+
+        artifact_queue.close()
+        consumer.join()
+
+        finished_at = utc_now()
+        with connect(self.db_path) as conn:
+            record_scan_run(conn, started_at, finished_at, stats.as_dict())
+        LOGGER.info(
+            "Scan complete: scanned=%d new=%d changed=%d duplicates=%d deleted=%d",
+            stats.files_scanned,
+            stats.new_files,
+            stats.changed_files,
+            stats.duplicate_files,
+            stats.deleted_files,
+        )
+        return stats
+
+    def scan_path(self, path: str | Path, source_system: str = "local_laptop") -> Artifact:
+        """Incrementally (re)index a single file, for use by the watcher."""
+
+        init_db(self.db_path)
+        resolved = Path(path).expanduser().resolve()
+        scanned_at = utc_now()
+        with connect(self.db_path) as conn:
+            existing = existing_artifacts(conn)
+        artifact = _build_artifact(resolved, source_system, existing, scanned_at)
+        # A single-file rescan can only see duplicates already in the index.
+        for other_path, row in existing.items():
+            if other_path != str(resolved) and row["sha256"] == artifact.sha256:
+                artifact = Artifact(**{**artifact.__dict__, "scan_status": ScanStatus.DUPLICATE})
+                break
+        with connect(self.db_path) as conn:
+            upsert_artifact(conn, artifact.to_row())
+        self.event_bus.publish(ScanEvent(status=artifact.scan_status, artifact=artifact))
+        LOGGER.info("Indexed %s as %s (%s)", resolved, artifact.id, artifact.scan_status)
+        return artifact
+
+
+def build_default_scanner(
+    db_path: str | Path = "data/catalog.sqlite", cache_dir: str | Path = "cache"
+) -> Scanner:
+    """Create a Scanner with the bundled text/link extraction subscriber wired in."""
+
+    from .extraction import ExtractionSubscriber
+
+    bus = ScanEventBus()
+    ExtractionSubscriber(db_path=db_path, cache_dir=cache_dir).register(bus)
+    return Scanner(db_path=db_path, event_bus=bus)
+
+
+def scan(
+    config_path: str | Path = "config/sources.yml",
+    db_path: str | Path = "data/catalog.sqlite",
+    cache_dir: str | Path = "cache",
+) -> ScanStats:
+    """Convenience entry point used by the CLI."""
+
+    return build_default_scanner(db_path, cache_dir).scan(config_path)
+
+
+def scan_file(
+    path: str | Path,
+    source_system: str = "local_laptop",
+    db_path: str | Path = "data/catalog.sqlite",
+    cache_dir: str | Path = "cache",
+) -> str:
+    """Index a single file and return its artifact id (used by the watcher)."""
+
+    artifact = build_default_scanner(db_path, cache_dir).scan_path(path, source_system)
+    return artifact.id

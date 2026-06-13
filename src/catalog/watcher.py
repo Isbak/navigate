@@ -10,7 +10,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from .config import load_config
-from .scanner import SUPPORTED_EXTENSIONS, scan_file
+from .scanner import SUPPORTED_EXTENSIONS, build_default_scanner
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class DebouncedHandler(FileSystemEventHandler):
 
 def watch(config_path: str | Path = "config/sources.yml", db_path: str | Path = "data/catalog.sqlite", cache_dir: str | Path = "cache", debounce: float = 2.0) -> None:
     cfg = load_config(config_path)
+    scanner = build_default_scanner(db_path, cache_dir)
     changes: queue.Queue[tuple[Path, str]] = queue.Queue()
     observer = Observer()
     handler = DebouncedHandler(changes, debounce)
@@ -60,7 +61,7 @@ def watch(config_path: str | Path = "config/sources.yml", db_path: str | Path = 
         while True:
             path, source_system = changes.get()
             if path.exists():
-                scan_file(path, source_system, db_path, cache_dir)
+                scanner.scan_path(path, source_system)
     finally:
         observer.stop()
         observer.join()

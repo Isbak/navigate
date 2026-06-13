@@ -569,17 +569,85 @@ status so a viewer can distinguish trusted from candidate links. The stable
 object ids are used verbatim as node ids — exactly what a later RDF mapping will
 key on.
 
+## RDF export and Apache Jena integration
+
+The `catalog.rdf` package projects the **approved** knowledge base into RDF and
+loads it into [Apache Jena Fuseki](https://jena.apache.org/documentation/fuseki2/).
+It is strictly a **projection layer**: SQLite remains the system of record,
+approved knowledge objects remain authoritative, and Fuseki only ever *receives*
+exported data to serve as a query layer. Only `APPROVED` objects and `APPROVED`
+relationships (with both endpoints approved) cross the boundary — nothing
+`PROPOSED`, `REVIEWED`, or `REJECTED` is ever exported.
+
+### URI strategy
+
+Every resource lives under the base namespace `https://knowledge-atlas.local/kg/`.
+Classes and predicates are prefixed names (`kg:Capability`, `kg:supports`).
+Instances use a stable, per-type path derived from the object's stable id:
+
+```
+https://knowledge-atlas.local/kg/capability/release_governance
+https://knowledge-atlas.local/kg/decision/launchpad_model
+https://knowledge-atlas.local/kg/platform/salesforce
+```
+
+Ids are lowercase, snake_case, and deterministic — the same object always yields
+the same URI, and collision-suffixed ids stay unique. No random ids are minted.
+
+### Exported files
+
+`catalog rdf-export` writes four files under `exports/rdf/` (Turtle by default;
+`--format json-ld` and `--format nt` are also supported):
+
+- `ontology.ttl` — the ten object classes (`kg:Capability` … `kg:Process`), the
+  relationship predicates (`kg:supports`, `kg:dependsOn`, `kg:implements`,
+  `kg:affects`, `kg:relatedTo`, `kg:ownedBy`, `kg:mentions`, `kg:references`),
+  and the provenance vocabulary (`kg:Evidence`, `kg:supportedBy`, …).
+- `knowledge.ttl` — one resource per approved object, with `rdf:type`,
+  `rdfs:label`, and `kg:confidence`.
+- `relationships.ttl` — approved object-to-object triples.
+- `provenance.ttl` — named `kg:Evidence` resources (`kg:sourceArtifact`,
+  `kg:quote`, `kg:confidence`) linked from objects via `kg:supportedBy`.
+
+Keeping the four graphs in separate files keeps the export forward-compatible
+with named graphs in a quad store.
+
+### Commands
+
+- `catalog rdf-export [--out DIR] [--format turtle|json-ld|nt]` — write the four
+  RDF files and print export counts.
+- `catalog rdf-validate [--out DIR]` — re-parse each exported file with rdflib.
+- `catalog rdf-stats` — show objects / relationships / evidence that would be
+  exported (APPROVED only).
+- `catalog fuseki-load [--out DIR]` — validate, then upload ontology → knowledge
+  → relationships → provenance via the SPARQL Update endpoint.
+- `catalog fuseki-clear` — `CLEAR ALL` triples from the dataset.
+
+Fuseki connection details live in `config/jena.yml` (`fuseki.endpoint`,
+`fuseki.dataset`); a missing file falls back to `http://localhost:3030/knowledge-atlas`.
+
+### Example queries
+
+`queries/` holds ready-to-run SPARQL (`.rq`) examples — `all_capabilities.rq`,
+`all_decisions.rq`, `all_relationships.rq`, `related_capabilities.rq`. After
+`catalog fuseki-load`, the headline query returns the approved capabilities:
+
+```sparql
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+SELECT ?capability WHERE { ?capability a kg:Capability . }
+```
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without
-changing the scanner, extraction, or the semantic layer. The knowledge layer is
-deliberately the boundary where the following future modules will plug in — they
-are **not** implemented in this phase:
+changing the scanner, extraction, or the semantic layer. These future modules
+are **not** implemented yet:
 
-- `rdf_export.py` — map the stable, URI-ready object ids to RDF resources.
-- `jena_loader.py` — load triples into Jena/Fuseki.
 - `graphrag_builder.py` — build a GraphRAG index.
 - a **visualization UI** consuming the `nodes.json` / `edges.json` graph export.
+
+The RDF projection and Jena/Fuseki loader described above are implemented in the
+`catalog.rdf` package.
 
 Earlier deterministic phases also remain open for extension: link resolution,
 broken-link checking, and fetching metadata from SharePoint/Confluence/ADO.

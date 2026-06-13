@@ -1,0 +1,11 @@
+# All approved decisions, most confident first.
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?decision ?label ?confidence
+WHERE {
+    ?decision a kg:Decision .
+    OPTIONAL { ?decision rdfs:label ?label }
+    OPTIONAL { ?decision kg:confidence ?confidence }
+}
+ORDER BY DESC(?confidence)

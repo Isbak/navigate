@@ -17,6 +17,11 @@ from .knowledge.export import export_graph_json
 from .knowledge.models import ReviewState
 from .knowledge.prompts import make_merge_judge
 from .knowledge.service import consolidate, review_object
+from .rdf.config import load_jena_config
+from .rdf.export import DEFAULT_OUT_DIR as RDF_OUT_DIR
+from .rdf.export import FORMATS as RDF_FORMATS
+from .rdf.export import export_rdf, rdf_stats, validate_rdf
+from .rdf.fuseki import FusekiError, clear_dataset, fuseki_load
 from .semantic import analytics as sem_analytics
 from .semantic import repository as sem_repo
 from .semantic.config import load_llm_config
@@ -51,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache", default="cache")
     parser.add_argument("--link-config", default="config/link_patterns.yml")
     parser.add_argument("--llm-config", default="config/llm.yml")
+    parser.add_argument("--jena-config", default="config/jena.yml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
@@ -111,6 +117,23 @@ def build_parser() -> argparse.ArgumentParser:
     reject.add_argument("object_id")
 
     sub.add_parser("export-graph-json")
+
+    # -- RDF export and Jena integration (Prompt #7) --
+    rdf_export = sub.add_parser("rdf-export")
+    rdf_export.add_argument("--out", default=RDF_OUT_DIR)
+    rdf_export.add_argument(
+        "--format", default="turtle", choices=sorted(RDF_FORMATS)
+    )
+
+    rdf_validate = sub.add_parser("rdf-validate")
+    rdf_validate.add_argument("--out", default=RDF_OUT_DIR)
+
+    sub.add_parser("rdf-stats")
+
+    fuseki = sub.add_parser("fuseki-load")
+    fuseki.add_argument("--out", default=RDF_OUT_DIR)
+
+    sub.add_parser("fuseki-clear")
     return parser
 
 
@@ -617,6 +640,75 @@ def _cmd_export_graph_json(args) -> None:
     print(f"  {paths['edges']} ({_fmt(edges)} edges)")
 
 
+def _cmd_rdf_export(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        paths = export_rdf(conn, args.out, fmt=args.format)
+        stats = rdf_stats(conn)
+    print("RDF export complete:")
+    for name in ("ontology", "knowledge", "relationships", "provenance"):
+        print(f"  {paths[name]}")
+    print(f"\nObjects exported: {_fmt(stats['objects'])}")
+    print(f"Relationships exported: {_fmt(stats['relationships'])}")
+    print(f"Evidence exported: {_fmt(stats['evidence'])}")
+
+
+def _cmd_rdf_validate(args) -> None:
+    results = validate_rdf(args.out)
+    if not results:
+        print(f"No RDF files found in {args.out}. Run: catalog rdf-export")
+        return
+    all_ok = True
+    for name, result in results.items():
+        if result["ok"]:
+            print(f"  OK    {name} ({_fmt(result['triples'])} triples)")
+        else:
+            all_ok = False
+            print(f"  FAIL  {name}: {result['error']}")
+    print("\nAll files valid." if all_ok else "\nValidation failed.")
+
+
+def _cmd_rdf_stats(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        stats = rdf_stats(conn)
+    print("RDF projection (APPROVED knowledge only):")
+    print(f"Objects exported: {_fmt(stats['objects'])}")
+    print(f"Relationships exported: {_fmt(stats['relationships'])}")
+    print(f"Evidence exported: {_fmt(stats['evidence'])}")
+    print(
+        f"\nTriples - knowledge: {_fmt(stats['knowledge_triples'])}  "
+        f"relationships: {_fmt(stats['relationship_triples'])}  "
+        f"provenance: {_fmt(stats['provenance_triples'])}"
+    )
+    if stats["objects"] == 0:
+        print("\nNo approved objects yet. Approve some: catalog approve-object <id>")
+
+
+def _cmd_fuseki_load(args) -> None:
+    config = load_jena_config(args.jena_config)
+    print(f"Loading RDF into Fuseki at {config.endpoint} ...")
+    try:
+        uploaded = fuseki_load(config, args.out)
+    except FusekiError as exc:
+        print(f"Error: {exc}")
+        return
+    print("Upload complete:")
+    for name in ("ontology", "knowledge", "relationships", "provenance"):
+        if name in uploaded:
+            print(f"  {name}: {_fmt(uploaded[name])} triples")
+
+
+def _cmd_fuseki_clear(args) -> None:
+    config = load_jena_config(args.jena_config)
+    try:
+        clear_dataset(config)
+    except FusekiError as exc:
+        print(f"Error: {exc}")
+        return
+    print(f"Cleared all triples from {config.endpoint}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -676,6 +768,16 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_review_object(args, ReviewState.REJECTED.value)
     elif args.command == "export-graph-json":
         _cmd_export_graph_json(args)
+    elif args.command == "rdf-export":
+        _cmd_rdf_export(args)
+    elif args.command == "rdf-validate":
+        _cmd_rdf_validate(args)
+    elif args.command == "rdf-stats":
+        _cmd_rdf_stats(args)
+    elif args.command == "fuseki-load":
+        _cmd_fuseki_load(args)
+    elif args.command == "fuseki-clear":
+        _cmd_fuseki_clear(args)
     return 0
 
 

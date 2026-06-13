@@ -1,0 +1,15 @@
+# Apache Jena Fuseki connection for the RDF projection layer (Prompt #7).
+#
+# RDF is a projection. SQLite remains the system of record and approved
+# knowledge objects remain authoritative; Fuseki only *receives* exported data
+# and serves it as a query layer.
+#
+# ``endpoint`` is the dataset base URL. The loader uploads via the SPARQL Update
+# endpoint at ``<endpoint>/update``. Start a local Fuseki with the ``atlas``
+# dataset and point ``endpoint`` at it, e.g.:
+#
+#   fuseki-server --update --mem /knowledge-atlas
+
+fuseki:
+  endpoint: http://localhost:3030/knowledge-atlas
+  dataset: atlas

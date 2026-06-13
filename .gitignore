@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Knowledge catalog local data
+*.egg-info/
+data/*.sqlite
+data/*.sqlite-*
+cache/*
+!cache/.gitkeep
+!data/.gitkeep

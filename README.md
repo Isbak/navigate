@@ -213,6 +213,8 @@ catalog discover-links
 catalog link-stats
 catalog classify
 catalog classification-stats
+catalog consolidate
+catalog knowledge-stats
 ```
 
 All commands accept alternate paths:
@@ -441,19 +443,143 @@ The active provider is selected with `--llm-config` (default `config/llm.yml`).
 - `classification_runs` — per-run statistics (documents processed/skipped,
   errors, model, timestamps).
 
+## Knowledge consolidation and graph foundation
+
+The knowledge layer (`catalog/knowledge/`) converges the *document-level*
+proposals of the semantic layer into reusable, cross-document **knowledge
+objects**. It is the final stage of the pipeline:
+
+```
+filesystem -> scanner -> SQLite catalog -> document cache -> link discovery
+                                                  |
+                                                  +--> semantic classification
+                                                            |
+                                                            +--> knowledge consolidation
+```
+
+Three documents that each talk about "Release Governance" / "Release Governance
+Model" / "Release governance" collapse into a single
+`capability_release_governance` object with traceable evidence and typed
+relationships to other objects:
+
+```
+Document A: "Release Governance"
+Document B: "Release Governance"          ─┐
+Document C: "Release Governance Model"     ├─►  Knowledge Object: Release Governance
+Document D: "Release governance"          ─┘
+```
+
+This phase is a **knowledge layer**, not GraphRAG, not Jena, not RDF, and not
+SPARQL — and it builds no visualization UI. It is the *graph-ready foundation*:
+every object has a stable, URI-ready id (`platform_salesforce`,
+`decision_launchpad_model`) that a future RDF mapping can adopt as a resource
+identifier without renaming anything.
+
+### Entity resolution
+
+Consolidation gathers every entity proposal from the semantic `candidate_*`
+tables and groups the ones that refer to the same thing using, in order of
+strength:
+
+- **case + punctuation + whitespace normalization** — collapses "Release
+  governance" into "Release Governance".
+- **fuzzy matching** — a blend of token-set similarity and a character-trigram
+  Dice coefficient, with a containment boost so "Release Governance Model" merges
+  into "Release Governance".
+- **LLM-assisted merge suggestions** *(optional)* — with `--use-llm`, borderline
+  pairs (above the review threshold but below the auto-merge threshold) are put
+  to the model as a yes/no question instead of guessed.
+
+Every cluster records its **merge confidence** (the cohesion that held it
+together). Pairs that are similar but below the auto-merge threshold are **not**
+merged; they surface as *duplicate candidates* for a human to review.
+
+### Evidence, relationships, and review
+
+- **Every object is traceable.** No knowledge object exists without at least one
+  `knowledge_evidence` row (a supporting quote, with optional page/slide
+  locators for the future).
+- **Relationships** between objects (`Platform implements Capability`,
+  `Initiative depends_on Capability`, `Risk affects Platform`, ...) are resolved
+  from the per-document candidate relationships and typed with the same
+  predicate vocabulary as the semantic layer.
+- **Review workflow.** Objects and relationships start as `PROPOSED` and move
+  through `REVIEWED → APPROVED → REJECTED`. **Only `APPROVED` items are
+  trusted.** A normal `consolidate` rebuilds the derived data from scratch but —
+  because ids are stable — re-applies prior human decisions; `--force` discards
+  them.
+
+### Knowledge scoring
+
+Each object's confidence blends five signals: the number of distinct documents,
+the number of mentions, relationship consistency (the fraction of its
+relationships not rejected on review), the average LLM confidence of its
+mentions, and review history (approval nudges it up, rejection drives it down).
+Breadth beats repetition — something asserted once in 27 documents outranks
+something repeated 27 times in one.
+
+### Commands
+
+```bash
+catalog consolidate                # build knowledge objects from semantic data
+catalog consolidate --force        # rebuild, discarding prior review decisions
+catalog consolidate --use-llm      # use the LLM for borderline merge suggestions
+
+catalog knowledge-stats            # top capabilities/concepts/technologies, most
+                                   # connected/mentioned, conflicts, duplicates
+catalog show-object capability_release_governance
+catalog search-knowledge "release"
+catalog review-candidates          # PROPOSED objects/relationships + duplicates
+catalog approve-object <id>
+catalog reject-object <id>
+catalog export-graph-json          # writes exports/graph/{nodes,edges}.json
+```
+
+After `catalog consolidate`, the success-criteria questions are answerable from
+consolidated objects rather than individual documents: *what are the core
+capabilities, which decisions are repeatedly referenced, and which concepts
+connect multiple domains.*
+
+### Knowledge data model
+
+- `knowledge_objects` — the consolidated objects: stable URI-ready `id`, `name`,
+  `object_type` (Capability, Initiative, Technology, Platform, Team, Product,
+  Concept, Decision, Risk, Process), `description`, `canonical_name`,
+  `confidence`, `status`, `merge_confidence`, `created_at`, `updated_at`.
+- `knowledge_mentions` — every (object, document) occurrence with its confidence
+  and source text.
+- `knowledge_evidence` — traceable quotes with optional `page_number` /
+  `slide_number`; the invariant is that no object exists without evidence.
+- `knowledge_relationships` — `source_object predicate target_object` triples
+  with confidence, evidence (JSON quotes), and a `review_status`.
+- `knowledge_reviews` — the audit trail of review actions, used by scoring.
+
+Unlike the semantic tables, a `knowledge_object_id` references
+`knowledge_objects.id` — a real, stable primary key — so genuine foreign keys
+with `ON DELETE CASCADE` are used. Everything here is fully regenerable from the
+semantic tables via `catalog consolidate`.
+
+### Graph export
+
+`catalog export-graph-json` writes `nodes.json` and `edges.json` under
+`exports/graph/` for a **future** visualization (none is built in this phase).
+Nodes are the knowledge objects; edges are the relationships. `REJECTED` objects
+and relationships are excluded, while `PROPOSED` ones are included with their
+status so a viewer can distinguish trusted from candidate links. The stable
+object ids are used verbatim as node ids — exactly what a later RDF mapping will
+key on.
+
 ## Future extension points
 
-The normalized links and classifications produced so far are designed to support
-later phases without changing extraction or the scanner. The semantic layer is
+The consolidated knowledge objects are designed to support later phases without
+changing the scanner, extraction, or the semantic layer. The knowledge layer is
 deliberately the boundary where the following future modules will plug in — they
 are **not** implemented in this phase:
 
-- `knowledge_review.py` — the human approval workflow that promotes observations
-  and hypotheses toward facts.
-- `rdf_export.py` / `graph_export.py` — export approved knowledge to RDF or a
-  property graph.
+- `rdf_export.py` — map the stable, URI-ready object ids to RDF resources.
 - `jena_loader.py` — load triples into Jena/Fuseki.
 - `graphrag_builder.py` — build a GraphRAG index.
+- a **visualization UI** consuming the `nodes.json` / `edges.json` graph export.
 
 Earlier deterministic phases also remain open for extension: link resolution,
 broken-link checking, and fetching metadata from SharePoint/Confluence/ADO.

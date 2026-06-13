@@ -11,6 +11,12 @@ from .extraction import extract_all
 from .links import discover_links, load_link_config
 from .links import repository as link_repo
 from .scanner import scan
+from .knowledge import analytics as know_analytics
+from .knowledge import repository as know_repo
+from .knowledge.export import export_graph_json
+from .knowledge.models import ReviewState
+from .knowledge.prompts import make_merge_judge
+from .knowledge.service import consolidate, review_object
 from .semantic import analytics as sem_analytics
 from .semantic import repository as sem_repo
 from .semantic.config import load_llm_config
@@ -78,6 +84,33 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("show-decisions", "show-risks", "show-capabilities", "show-relationships"):
         p = sub.add_parser(name)
         p.add_argument("--min-confidence", type=float, default=0.0)
+
+    # -- knowledge consolidation layer (Prompt #6) --
+    cons = sub.add_parser("consolidate")
+    cons.add_argument("--force", action="store_true")
+    cons.add_argument(
+        "--use-llm",
+        action="store_true",
+        help="consult the configured LLM for borderline merge suggestions",
+    )
+
+    sub.add_parser("knowledge-stats")
+
+    show_obj = sub.add_parser("show-object")
+    show_obj.add_argument("object_id")
+
+    search_k = sub.add_parser("search-knowledge")
+    search_k.add_argument("query")
+
+    sub.add_parser("review-candidates")
+
+    approve = sub.add_parser("approve-object")
+    approve.add_argument("object_id")
+
+    reject = sub.add_parser("reject-object")
+    reject.add_argument("object_id")
+
+    sub.add_parser("export-graph-json")
     return parser
 
 
@@ -381,6 +414,209 @@ def _cmd_show_relationships(args) -> None:
         print("No candidate relationships.")
 
 
+def _cmd_consolidate(args) -> None:
+    merge_judge = None
+    if args.use_llm:
+        config = load_llm_config(args.llm_config)
+        try:
+            provider = build_provider(config)
+        except LLMError as exc:
+            print(f"Error: {exc}")
+            return
+        print(f"Using {config.provider} model {provider.model} for merge suggestions ...")
+        merge_judge = make_merge_judge(provider)
+
+    print("Consolidating knowledge objects ...")
+    stats = consolidate(args.db, force=args.force, merge_judge=merge_judge)
+    print("Consolidation complete:")
+    print(f"Mentions gathered: {_fmt(stats.mentions_gathered)}")
+    print(f"Knowledge objects: {_fmt(stats.objects_created)}")
+    print(f"Mentions linked: {_fmt(stats.mentions_linked)}")
+    print(f"Evidence rows: {_fmt(stats.evidence_created)}")
+    print(f"Relationships: {_fmt(stats.relationships_created)}")
+    print(f"Relationships unresolved: {_fmt(stats.relationships_unresolved)}")
+    if not args.force:
+        print(f"Review statuses preserved: {_fmt(stats.statuses_preserved)}")
+    if stats.by_object_type:
+        print("\nObjects by type:")
+        for otype, count in sorted(
+            stats.by_object_type.items(), key=lambda kv: (-kv[1], kv[0])
+        ):
+            print(f"  {otype}: {_fmt(count)}")
+
+
+def _cmd_knowledge_stats(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        total = know_repo.count_objects(conn)
+        print(f"Knowledge objects: {_fmt(total)}")
+        if total == 0:
+            print("No knowledge objects yet. Run: catalog consolidate")
+            return
+
+        print(f"Mentions: {_fmt(know_repo.count_table(conn, 'knowledge_mentions'))}")
+        print(f"Evidence: {_fmt(know_repo.count_table(conn, 'knowledge_evidence'))}")
+        print(
+            f"Relationships: {_fmt(know_repo.count_table(conn, 'knowledge_relationships'))}"
+        )
+
+        print("\nObjects by type:")
+        for row in know_repo.object_type_counts(conn):
+            print(f"  {row['key']}: {_fmt(row['count'])}")
+
+        print("\nObjects by review status:")
+        for status in (s.value for s in ReviewState):
+            count = len(know_repo.objects_by_status(conn, status))
+            print(f"  {status}: {_fmt(count)}")
+
+        for label, otype in (
+            ("Top capabilities", "Capability"),
+            ("Top concepts", "Concept"),
+            ("Top technologies", "Technology"),
+        ):
+            print(f"\n{label} (by documents):")
+            rows = know_analytics.top_by_type(conn, otype, 10)
+            if not rows:
+                print("  (none)")
+            for r in rows:
+                print(f"  {_fmt(r['documents'])} docs  [{r['confidence']:.2f}]  {r['name']}")
+
+        print("\nMost connected objects:")
+        connected = know_analytics.most_connected(conn, 10)
+        if not connected:
+            print("  (none)")
+        for r in connected:
+            print(f"  {_fmt(r['degree'])} links  {r['name']} ({r['object_type']})")
+
+        print("\nMost mentioned objects:")
+        for r in know_analytics.most_mentioned(conn, 10):
+            print(f"  {_fmt(r['documents'])} docs  {r['name']} ({r['object_type']})")
+
+        print("\nObjects with conflicting evidence:")
+        conflicts = know_analytics.conflicting_evidence(conn, 10)
+        if not conflicts:
+            print("  (none)")
+        for r in conflicts:
+            print(
+                f"  {r['name']} ({r['object_type']}): "
+                f"confidence ranges {r['min_confidence']:.2f}-{r['max_confidence']:.2f}"
+            )
+
+        print("\nDuplicate candidates (review suggested):")
+        dups = know_analytics.duplicate_candidates(conn, limit=10)
+        if not dups:
+            print("  (none)")
+        for d in dups:
+            print(
+                f"  [{d['similarity']:.2f}] {d['left_name']} <-> {d['right_name']} "
+                f"({d['object_type']})"
+            )
+
+
+def _cmd_show_object(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        obj = know_repo.get_object(conn, args.object_id)
+        if obj is None:
+            print(f"No knowledge object with id {args.object_id!r}.")
+            return
+        mentions = know_repo.mentions_for_object(conn, args.object_id)
+        evidence = know_repo.evidence_for_object(conn, args.object_id)
+        rels = know_repo.relationships_for_object(conn, args.object_id)
+
+    documents = len({m["artifact_id"] for m in mentions})
+    print(f"{obj['canonical_name']}")
+    print(f"\nId: {obj['id']}")
+    print(f"Type: {obj['object_type']}")
+    print(f"Confidence: {obj['confidence']:.2f}")
+    print(f"Status: {obj['status']}    Merge confidence: {obj['merge_confidence']:.2f}")
+    print(f"Mentions: {_fmt(len(mentions))}")
+    print(f"Documents: {_fmt(documents)}")
+    if obj["description"]:
+        print(f"\nDescription:\n{obj['description']}")
+
+    print("\nRelated objects:")
+    if not rels:
+        print("  (none)")
+    for r in rels:
+        if r["source_object"] == args.object_id:
+            print(f"  {r['predicate']} -> {r['target_object']} "
+                  f"[{r['confidence']:.2f}] ({r['review_status']})")
+        else:
+            print(f"  {r['source_object']} -> {r['predicate']} (this) "
+                  f"[{r['confidence']:.2f}] ({r['review_status']})")
+
+    print("\nEvidence:")
+    if not evidence:
+        print("  (none)")
+    for e in evidence[:15]:
+        locator = ""
+        if e["slide_number"] is not None:
+            locator = f" slide {e['slide_number']}"
+        elif e["page_number"] is not None:
+            locator = f" page {e['page_number']}"
+        quote = e["quote"] or ""
+        print(f"  {e['artifact_id']}{locator}: \"{quote}\"")
+
+
+def _cmd_search_knowledge(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        rows = know_repo.search_objects(conn, args.query)
+    if not rows:
+        print(f"No knowledge objects match {args.query!r}.")
+        return
+    for r in rows:
+        print(
+            f"[{r['confidence']:.2f}] {r['canonical_name']} "
+            f"({r['object_type']}, {r['status']})  id={r['id']}"
+        )
+
+
+def _cmd_review_candidates(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        objects = know_repo.objects_by_status(conn, ReviewState.PROPOSED.value)
+        rels = know_repo.relationships_by_status(conn, ReviewState.PROPOSED.value)
+        dups = know_analytics.duplicate_candidates(conn, limit=20)
+
+    print(f"Proposed objects awaiting review: {_fmt(len(objects))}")
+    for r in objects[:30]:
+        print(f"  [{r['confidence']:.2f}] {r['canonical_name']} ({r['object_type']})  id={r['id']}")
+
+    print(f"\nProposed relationships awaiting review: {_fmt(len(rels))}")
+    for r in rels[:30]:
+        print(f"  [{r['confidence']:.2f}] {r['source_object']} {r['predicate']} {r['target_object']}")
+
+    print(f"\nDuplicate candidates (possible merges): {_fmt(len(dups))}")
+    for d in dups:
+        print(
+            f"  [{d['similarity']:.2f}] {d['left_name']} <-> {d['right_name']} "
+            f"({d['object_type']})"
+        )
+
+
+def _cmd_review_object(args, status: str) -> None:
+    init_db(args.db)
+    changed = review_object(args.db, args.object_id, status)
+    if changed:
+        print(f"{args.object_id} -> {status}")
+    else:
+        print(f"No knowledge object with id {args.object_id!r}.")
+
+
+def _cmd_export_graph_json(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        paths = export_graph_json(conn)
+    with connect(args.db) as conn:
+        nodes = know_repo.count_objects(conn)
+        edges = know_repo.count_table(conn, "knowledge_relationships")
+    print("Graph exported:")
+    print(f"  {paths['nodes']} ({_fmt(nodes)} nodes)")
+    print(f"  {paths['edges']} ({_fmt(edges)} edges)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -424,6 +660,22 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_show_capabilities(args)
     elif args.command == "show-relationships":
         _cmd_show_relationships(args)
+    elif args.command == "consolidate":
+        _cmd_consolidate(args)
+    elif args.command == "knowledge-stats":
+        _cmd_knowledge_stats(args)
+    elif args.command == "show-object":
+        _cmd_show_object(args)
+    elif args.command == "search-knowledge":
+        _cmd_search_knowledge(args)
+    elif args.command == "review-candidates":
+        _cmd_review_candidates(args)
+    elif args.command == "approve-object":
+        _cmd_review_object(args, ReviewState.APPROVED.value)
+    elif args.command == "reject-object":
+        _cmd_review_object(args, ReviewState.REJECTED.value)
+    elif args.command == "export-graph-json":
+        _cmd_export_graph_json(args)
     return 0
 
 

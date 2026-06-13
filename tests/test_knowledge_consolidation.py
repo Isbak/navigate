@@ -1,0 +1,252 @@
+"""Integration tests for the knowledge consolidation pipeline.
+
+These seed the semantic ``candidate_*`` tables directly (the input contract of
+consolidation) and exercise the full pipeline: gathering, resolution, object
+creation, evidence tracking, relationship creation, scoring, the review
+workflow, status preservation across re-runs, and graph export.
+"""
+
+from catalog.db import connect, init_db
+from catalog.knowledge import analytics, repository as repo
+from catalog.knowledge.export import build_edges, build_nodes, export_graph_json
+from catalog.knowledge.models import ReviewState
+from catalog.knowledge.service import consolidate, review_object
+
+
+def _seed_capability(conn, artifact_id, name, confidence=0.9, quote="quote"):
+    conn.execute(
+        """
+        INSERT INTO candidate_capabilities(
+            artifact_id, name, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, ?, ?, 'OBSERVATION', 'NEW', 'stub', 't')
+        """,
+        (artifact_id, name, confidence, quote),
+    )
+
+
+def _seed_entity(conn, artifact_id, entity_type, name, confidence=0.85, quote="quote"):
+    conn.execute(
+        """
+        INSERT INTO candidate_entities(
+            artifact_id, entity_type, name, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'OBSERVATION', 'NEW', 'stub', 't')
+        """,
+        (artifact_id, entity_type, name, confidence, quote),
+    )
+
+
+def _seed_relationship(conn, artifact_id, subject, predicate, obj, confidence=0.8):
+    conn.execute(
+        """
+        INSERT INTO candidate_relationships(
+            artifact_id, subject, predicate, object, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'because', 'HYPOTHESIS', 'NEW', 'stub', 't')
+        """,
+        (artifact_id, subject, predicate, obj, confidence),
+    )
+
+
+def _seed_release_governance(db):
+    """Three docs naming Release Governance three ways, all on Salesforce."""
+
+    init_db(db)
+    with connect(db) as conn:
+        _seed_capability(conn, "doc_a", "Release Governance", quote="we run release governance")
+        _seed_capability(conn, "doc_b", "Release governance")
+        _seed_capability(conn, "doc_c", "Release Governance Model")
+        _seed_entity(conn, "doc_a", "Platform", "Salesforce")
+        _seed_entity(conn, "doc_b", "Platform", "Salesforce")
+        _seed_entity(conn, "doc_c", "Platform", "Salesforce")
+        _seed_relationship(conn, "doc_a", "Salesforce", "implements", "Release Governance")
+        conn.commit()
+
+
+def test_variants_consolidate_into_one_object(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+
+    stats = consolidate(db)
+    assert stats.objects_created == 2  # one Capability, one Platform
+    assert stats.mentions_linked == 6
+
+    with connect(db) as conn:
+        obj = repo.get_object(conn, "capability_release_governance")
+        assert obj is not None
+        assert obj["canonical_name"] == "Release Governance"
+        assert obj["object_type"] == "Capability"
+        assert obj["status"] == ReviewState.PROPOSED.value
+        # Three documents mention it under three surface forms.
+        mentions = repo.mentions_for_object(conn, "capability_release_governance")
+        assert {m["artifact_id"] for m in mentions} == {"doc_a", "doc_b", "doc_c"}
+
+
+def test_every_object_has_evidence(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+
+    with connect(db) as conn:
+        orphans = conn.execute(
+            """
+            SELECT o.id FROM knowledge_objects o
+            LEFT JOIN knowledge_evidence e ON e.knowledge_object_id = o.id
+            WHERE e.id IS NULL
+            """
+        ).fetchall()
+    assert orphans == []
+
+
+def test_evidence_fallback_when_no_quotes(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_capability(conn, "doc_a", "Quiet Capability", quote="")
+        conn.commit()
+    consolidate(db)
+
+    with connect(db) as conn:
+        ev = repo.evidence_for_object(conn, "capability_quiet_capability")
+    assert len(ev) == 1
+    # With no supporting quote, the name itself stands in as evidence.
+    assert ev[0]["quote"] == "Quiet Capability"
+
+
+def test_relationships_resolve_to_objects(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+
+    with connect(db) as conn:
+        rels = repo.all_relationships(conn)
+    assert len(rels) == 1
+    rel = rels[0]
+    assert rel["source_object"] == "platform_salesforce"
+    assert rel["predicate"] == "implements"
+    assert rel["target_object"] == "capability_release_governance"
+    assert rel["review_status"] == ReviewState.PROPOSED.value
+
+
+def test_relationship_with_unresolvable_endpoint_is_skipped(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_capability(conn, "doc_a", "Known Thing")
+        _seed_relationship(conn, "doc_a", "Known Thing", "supports", "Nonexistent Mystery")
+        conn.commit()
+    stats = consolidate(db)
+    assert stats.relationships_created == 0
+    assert stats.relationships_unresolved == 1
+
+
+def test_confidence_scales_with_document_support(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        for i in range(10):
+            _seed_capability(conn, f"doc_{i}", "Widely Discussed Capability")
+        _seed_capability(conn, "solo", "Rarely Mentioned Capability")
+        conn.commit()
+    consolidate(db)
+
+    with connect(db) as conn:
+        broad = repo.get_object(conn, "capability_widely_discussed_capability")
+        narrow = repo.get_object(conn, "capability_rarely_mentioned_capability")
+    assert broad["confidence"] > narrow["confidence"]
+
+
+def test_review_workflow_and_status_preserved_across_reconsolidation(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+
+    # Approve an object; default status is PROPOSED.
+    assert review_object(db, "capability_release_governance", ReviewState.APPROVED.value)
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_release_governance")["status"] == "APPROVED"
+
+    # A normal re-consolidate rebuilds derived data but keeps the approval.
+    stats = consolidate(db)
+    assert stats.statuses_preserved == 1
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_release_governance")["status"] == "APPROVED"
+
+    # --force wipes the human decision back to PROPOSED.
+    consolidate(db, force=True)
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_release_governance")["status"] == "PROPOSED"
+
+
+def test_reject_object_unknown_id_returns_false(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+    assert review_object(db, "no_such_object", ReviewState.REJECTED.value) is False
+
+
+def test_consolidate_is_idempotent(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+    consolidate(db)
+    with connect(db) as conn:
+        assert repo.count_objects(conn) == 2
+        assert repo.count_table(conn, "knowledge_relationships") == 1
+        # Mentions are rebuilt, not duplicated.
+        assert repo.count_table(conn, "knowledge_mentions") == 6
+
+
+def test_analytics_answer_success_criteria(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+
+    with connect(db) as conn:
+        caps = analytics.top_by_type(conn, "Capability")
+        assert caps[0]["name"] == "Release Governance"
+        assert caps[0]["documents"] == 3
+
+        mentioned = analytics.most_mentioned(conn)
+        assert {m["name"] for m in mentioned} == {"Release Governance", "Salesforce"}
+
+        connected = analytics.most_connected(conn)
+        assert connected  # the implements relationship links two objects
+        assert all(c["degree"] >= 1 for c in connected)
+
+
+def test_graph_export_writes_nodes_and_edges(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+
+    with connect(db) as conn:
+        nodes = build_nodes(conn)
+        edges = build_edges(conn)
+    assert {n["id"] for n in nodes} == {
+        "capability_release_governance",
+        "platform_salesforce",
+    }
+    assert len(edges) == 1
+    assert edges[0]["source"] == "platform_salesforce"
+    assert edges[0]["target"] == "capability_release_governance"
+
+    out = export_graph_json(connect(db), tmp_path / "graph")
+    assert out["nodes"].exists()
+    assert out["edges"].exists()
+
+
+def test_rejected_object_excluded_from_graph(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+    review_object(db, "platform_salesforce", ReviewState.REJECTED.value)
+
+    with connect(db) as conn:
+        nodes = build_nodes(conn)
+        edges = build_edges(conn)
+    ids = {n["id"] for n in nodes}
+    assert "platform_salesforce" not in ids
+    # The edge touching the rejected node is dropped too.
+    assert edges == []

@@ -184,6 +184,81 @@ CREATE TABLE IF NOT EXISTS classification_runs(
   documents_skipped INTEGER,
   errors INTEGER
 );
+-- ---------------------------------------------------------------------------
+-- Knowledge consolidation layer (Prompt #6).
+--
+-- These tables converge the per-document semantic proposals into reusable
+-- knowledge objects. Unlike the semantic ``artifact_id`` columns (which point at
+-- the non-unique content id), a ``knowledge_object_id`` references
+-- ``knowledge_objects.id`` - a real, stable, URI-ready primary key - so genuine
+-- FOREIGN KEYs with ON DELETE CASCADE are used here.
+--
+-- ``knowledge_objects.id`` is a slug of the form ``<type>_<name>`` (e.g.
+-- ``capability_release_governance``); it is stable across consolidation runs,
+-- which is what lets a re-run preserve human review decisions and what a future
+-- RDF mapping will adopt as the resource identifier. Everything here is fully
+-- regenerable from the semantic tables via ``catalog consolidate``.
+CREATE TABLE IF NOT EXISTS knowledge_objects(
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  object_type TEXT NOT NULL,
+  description TEXT,
+  canonical_name TEXT,
+  confidence REAL,
+  status TEXT DEFAULT 'PROPOSED',
+  merge_confidence REAL,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_objects_type ON knowledge_objects(object_type);
+CREATE INDEX IF NOT EXISTS idx_knowledge_objects_status ON knowledge_objects(status);
+CREATE TABLE IF NOT EXISTS knowledge_mentions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  knowledge_object_id TEXT NOT NULL REFERENCES knowledge_objects(id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  confidence REAL,
+  source_text TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_mentions_object ON knowledge_mentions(knowledge_object_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_mentions_artifact ON knowledge_mentions(artifact_id);
+CREATE TABLE IF NOT EXISTS knowledge_evidence(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  knowledge_object_id TEXT NOT NULL REFERENCES knowledge_objects(id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  quote TEXT,
+  page_number INTEGER,
+  slide_number INTEGER,
+  confidence REAL,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_object ON knowledge_evidence(knowledge_object_id);
+CREATE TABLE IF NOT EXISTS knowledge_relationships(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_object TEXT NOT NULL REFERENCES knowledge_objects(id) ON DELETE CASCADE,
+  predicate TEXT NOT NULL,
+  target_object TEXT NOT NULL REFERENCES knowledge_objects(id) ON DELETE CASCADE,
+  confidence REAL,
+  evidence TEXT,
+  review_status TEXT DEFAULT 'PROPOSED',
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_rel_triple
+  ON knowledge_relationships(source_object, predicate, target_object);
+CREATE INDEX IF NOT EXISTS idx_knowledge_rel_source ON knowledge_relationships(source_object);
+CREATE INDEX IF NOT EXISTS idx_knowledge_rel_target ON knowledge_relationships(target_object);
+CREATE TABLE IF NOT EXISTS knowledge_reviews(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_kind TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  confidence REAL,
+  note TEXT,
+  reviewer TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_reviews_target ON knowledge_reviews(target_id);
 """
 
 # Columns expected on a current ``artifacts`` table; a mismatch triggers a
@@ -294,6 +369,50 @@ def _stale_semantic_tables(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
+# Expected columns for the knowledge-layer tables. Like the semantic tables they
+# are fully regenerable (via ``catalog consolidate``), so a layout change drops
+# and recreates them. They are dropped as a set, children first, because of the
+# FOREIGN KEYs between them.
+_EXPECTED_KNOWLEDGE_COLUMNS = {
+    "knowledge_objects": {
+        "id", "name", "object_type", "description", "canonical_name",
+        "confidence", "status", "merge_confidence", "created_at", "updated_at",
+    },
+    "knowledge_mentions": {
+        "id", "knowledge_object_id", "artifact_id", "confidence",
+        "source_text", "created_at",
+    },
+    "knowledge_evidence": {
+        "id", "knowledge_object_id", "artifact_id", "quote",
+        "page_number", "slide_number", "confidence", "created_at",
+    },
+    "knowledge_relationships": {
+        "id", "source_object", "predicate", "target_object", "confidence",
+        "evidence", "review_status", "created_at", "updated_at",
+    },
+    "knowledge_reviews": {
+        "id", "target_kind", "target_id", "action", "confidence",
+        "note", "reviewer", "created_at",
+    },
+}
+
+# Drop order: children before the parent ``knowledge_objects`` they reference.
+_KNOWLEDGE_DROP_ORDER = (
+    "knowledge_relationships",
+    "knowledge_evidence",
+    "knowledge_mentions",
+    "knowledge_reviews",
+    "knowledge_objects",
+)
+
+
+def _knowledge_tables_stale(conn: sqlite3.Connection) -> bool:
+    return any(
+        _columns_mismatch(conn, table, expected)
+        for table, expected in _EXPECTED_KNOWLEDGE_COLUMNS.items()
+    )
+
+
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     """Create the schema, rebuilding the local index if it predates this layout.
 
@@ -318,6 +437,11 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         # ``catalog classify``; drop any whose columns no longer match.
         for table in _stale_semantic_tables(conn):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
+        # Knowledge tables are regenerable via ``catalog consolidate``; if any of
+        # them changed shape, drop the whole set (children first) and recreate.
+        if _knowledge_tables_stale(conn):
+            for table in _KNOWLEDGE_DROP_ORDER:
+                conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.executescript(SCHEMA)
 
 

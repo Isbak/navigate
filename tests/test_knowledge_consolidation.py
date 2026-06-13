@@ -10,7 +10,7 @@ from catalog.db import connect, init_db
 from catalog.knowledge import analytics, repository as repo
 from catalog.knowledge.export import build_edges, build_nodes, export_graph_json
 from catalog.knowledge.models import ReviewState
-from catalog.knowledge.service import consolidate, review_object
+from catalog.knowledge.service import consolidate, review_object, review_relationship
 
 
 def _seed_capability(conn, artifact_id, name, confidence=0.9, quote="quote"):
@@ -184,6 +184,45 @@ def test_reject_object_unknown_id_returns_false(tmp_path):
     _seed_release_governance(db)
     consolidate(db)
     assert review_object(db, "no_such_object", ReviewState.REJECTED.value) is False
+
+
+def test_relationship_review_workflow_and_status_preserved(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+
+    with connect(db) as conn:
+        rel = repo.all_relationships(conn)[0]
+        rel_id = rel["id"]
+        assert rel["review_status"] == ReviewState.PROPOSED.value
+
+    # Approve the relationship and record an audit-trail entry.
+    assert review_relationship(db, rel_id, ReviewState.APPROVED.value)
+    with connect(db) as conn:
+        approved = repo.all_relationships(conn)[0]
+        assert approved["review_status"] == ReviewState.APPROVED.value
+        review = conn.execute(
+            "SELECT * FROM knowledge_reviews WHERE target_kind = 'relationship'"
+        ).fetchone()
+        assert review["target_id"] == str(rel_id)
+        assert review["action"] == ReviewState.APPROVED.value
+
+    # A normal re-consolidate keeps the approval (keyed on the triple, not id).
+    consolidate(db)
+    with connect(db) as conn:
+        assert repo.all_relationships(conn)[0]["review_status"] == ReviewState.APPROVED.value
+
+    # --force discards the human decision back to PROPOSED.
+    consolidate(db, force=True)
+    with connect(db) as conn:
+        assert repo.all_relationships(conn)[0]["review_status"] == ReviewState.PROPOSED.value
+
+
+def test_review_relationship_unknown_id_returns_false(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    _seed_release_governance(db)
+    consolidate(db)
+    assert review_relationship(db, 999999, ReviewState.APPROVED.value) is False
 
 
 def test_consolidate_is_idempotent(tmp_path):

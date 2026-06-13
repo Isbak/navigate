@@ -708,14 +708,101 @@ central concepts are, what evidence supports a capability, and the shortest path
 between a team and a capability — proving the graph's usefulness before any AI
 layer is added.
 
+## GraphRAG knowledge assistant
+
+The `catalog.graphrag` package is a conversational analyst that reasons over the
+**approved** knowledge graph, its approved relationships, evidence, and source
+documents. The graph drives *retrieval*; the LLM performs *reasoning*. It is
+deliberately **not** naive RAG: there is no document search, no full-text scan,
+no vector database, and no embedding retrieval. Graph retrieval is mandatory, and
+nothing unapproved can ever reach the model.
+
+```
+Question
+    -> Intent analysis       (search object, type, relationship, reasoning type)
+    -> Graph retrieval        (match objects, expand neighbourhood via SPARQL)
+    -> Evidence retrieval     (approved relationships + supporting quotes)
+    -> Context builder        (compact, deterministic, traceable context)
+    -> LLM                    (reasoning only, over the supplied context)
+    -> Traceable answer       (objects + relationships + evidence + confidence)
+```
+
+### Graph-first retrieval
+
+Retrieval never touches documents first. A question's named objects are resolved
+to stable ids, the graph neighbourhood is expanded to a configurable depth
+(1, 2, or 3; **default 2**) over the SPARQL/NetworkX projection, the approved
+relationships inside that neighbourhood are gathered, and finally supporting
+evidence (document id, quote, confidence) is pulled per object — exactly the walk
+`Release Governance → Launchpad Model → Release Management → Test & Release Team`.
+
+### Intent analysis
+
+Each question is parsed *deterministically* (no LLM) into a search object, object
+type, relationship focus, and a **reasoning type** — `lookup`, `path`, `impact`,
+`evidence`, `domain`, or `comparison` — which shapes both retrieval and the
+prompt. Keeping intent rule-based makes the only non-deterministic step the final
+reasoning over an already-fixed context.
+
+### Hallucination controls
+
+The assistant behaves like a knowledgeable analyst, not a guessing chatbot:
+
+- It answers **only** from the retrieved graph context; the system prompt forbids
+  inventing objects, relationships, documents, or quotes.
+- Every answer carries its citations — knowledge objects, evidence handles
+  (`[E1]`), and documents — and a **confidence** band.
+- If no object matches or no evidence is retrieved, it declines *before* calling
+  the model and replies exactly: **"No supporting evidence found."**
+
+### Answer confidence
+
+Confidence is computed from the retrieval (not the model's self-assessment),
+blending object confidence, relationship confidence, evidence confidence, and
+coverage into a **High / Medium / Low** band.
+
+### Conversation memory
+
+A session remembers each turn's question and retrieved objects, so follow-ups
+resolve referents:
+
+```
+Q1: "What supports Release Governance?"
+Q2: "What risks are associated with that?"     # "that" -> Release Governance
+```
+
+### Commands
+
+```bash
+catalog ask "What supports Release Governance?"
+catalog ask "What capabilities depend on Salesforce?" --depth 3
+catalog ask "What decisions affect Test & Release?" --model qwen3:14b
+catalog ask "What risks affect Salesforce?" --show-context --show-sparql --show-evidence
+
+catalog explain "Release Governance"          # description, connections, evidence
+catalog compare "Release Governance" "Platform Governance"
+catalog impact "Salesforce"                    # capabilities/decisions/risks/teams affected
+catalog path-reason "Release Governance" "Salesforce"   # retrieve path, LLM explains
+```
+
+The active LLM provider is selected with `--llm-config` (default `config/llm.yml`)
+and reuses the same `OllamaProvider` / `OpenAIProvider` abstraction as the
+semantic layer, so adding a provider needs no changes here. By default the
+assistant runs SPARQL against the in-memory projection built from SQLite (no
+Fuseki required); `--fuseki` reroutes the same SPARQL to a live endpoint.
+
+### Observability
+
+Every answered question logs (at `-v`) its reasoning type, the counts of objects,
+relationships, and evidence retrieved, the prompt size, the response time, and
+the resulting confidence band.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without
 changing the scanner, extraction, or the semantic layer. These future modules
 are **not** implemented yet:
 
-- `graphrag_builder.py` — build a GraphRAG index. This is the deliberate **next**
-  phase: the Knowledge Explorer above exists to validate the graph first.
 - a **visualization UI** consuming the `exports/graph/{nodes,edges,metrics}.json`
   bundle (and the GEXF / GraphML exports) the explorer now produces.
 

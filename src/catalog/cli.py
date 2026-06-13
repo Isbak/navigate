@@ -9,6 +9,7 @@ from pathlib import Path
 from .db import connect, init_db, latest_scan_run
 from .extraction import extract_all
 from .graph.cli import add_graph_parser, run_graph
+from .graphrag.cli import add_graphrag_parsers, run_graphrag
 from .links import discover_links, load_link_config
 from .links import repository as link_repo
 from .scanner import scan
@@ -138,6 +139,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- knowledge explorer and SPARQL query layer (Prompt #8) --
     add_graph_parser(sub)
+
+    # -- GraphRAG knowledge assistant (Prompt #9) --
+    add_graphrag_parsers(sub)
     return parser
 
 
@@ -784,6 +788,8 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_fuseki_clear(args)
     elif args.command == "graph":
         run_graph(args)
+    elif args.command in {"ask", "explain", "impact", "compare", "path-reason"}:
+        run_graphrag(args)
     return 0
 
 

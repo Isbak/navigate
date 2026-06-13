@@ -211,6 +211,8 @@ catalog scan
 catalog extract
 catalog discover-links
 catalog link-stats
+catalog classify
+catalog classification-stats
 ```
 
 All commands accept alternate paths:
@@ -327,12 +329,134 @@ systems:
 When the file is absent, the built-in patterns are used. `github.com` is treated
 as `external` unless one of its URLs matches a configured internal domain.
 
+## Semantic classification and knowledge discovery
+
+The semantic layer (`catalog/semantic/`) uses an LLM to *analyze* extracted
+documents and *propose* structured knowledge. It is the next stage of the
+pipeline, fed entirely by the extraction cache and SQLite catalog:
+
+```
+filesystem -> scanner -> SQLite catalog -> document cache -> link discovery
+                                                  |
+                                                  +--> semantic classification
+```
+
+This phase **does not create facts.** It creates classifications, observations,
+hypotheses, and candidate relationships — every one carrying a confidence score,
+its provenance, and a `review_status` of `NEW` for a human to approve later.
+There is no RDF, no Jena, and no GraphRAG here.
+
+### LLM provider abstraction
+
+The service depends only on `BaseLLMProvider`, so it is agnostic to the backend.
+Two providers ship today and new ones are a one-line registration plus a small
+subclass:
+
+- `OllamaProvider` — talks to a local Ollama server (fully offline).
+- `OpenAIProvider` — talks to the OpenAI Chat Completions API.
+
+Both use only the standard library (no vendor SDK dependency). Configure the
+active provider in `config/llm.yml`:
+
+```yaml
+provider: ollama
+
+ollama:
+  model: qwen3:14b
+  host: http://localhost:11434
+
+openai:
+  model: gpt-5.5            # OPENAI_API_KEY is read from the environment
+
+max_input_chars: 12000      # extracted text is truncated to this before prompting
+```
+
+### What it determines, per document
+
+- **document_type** — one of Governance, Strategy, Architecture, Roadmap,
+  Project, Meeting Notes, Workshop, Presentation, Budget, Report, Requirements,
+  Technical Design, Operating Model, Training, Other (with a confidence).
+- **domains** — one or more business/technology areas (Test & Release,
+  Architecture, SAP, Data, Finance, HR, ...), each scored.
+- **summaries** — a short summary (≤100 words) and a long summary (≤500 words).
+- **candidate entities** — Capability, Initiative, Team, Product, Platform,
+  Process, Technology, Concept, Decision, or Risk.
+- **candidate capabilities** — business capabilities discussed (Release
+  Management, Change Management, Incident Management, ...).
+- **candidate decisions** — decisions the document appears to make, with a
+  supporting quote. Never marked approved.
+- **candidate risks** — risks the document implies, with a supporting quote.
+- **candidate relationships** — `subject predicate object` triples using the
+  predicates `supports`, `depends_on`, `implements`, `mentions`, `references`,
+  `affects`, `owned_by`, `related_to`.
+
+### Storage tiers and provenance
+
+Knowledge is separated into tiers via a `knowledge_type` column. This phase only
+ever writes `OBSERVATION` (read directly off the document) and `HYPOTHESIS`
+(an inferred claim) — **never `FACT`**. Every semantic row records its
+provenance: `artifact_id`, `model`, `created_at` (timestamp), `confidence`, and
+`supporting_text`. Every row starts with `review_status = NEW`; the review
+workflow (`NEW → REVIEWED → APPROVED → REJECTED`) is left for a future phase.
+
+### Incremental processing
+
+A document is (re)classified only when its extraction changed (its content hash
+differs from the stored `source_hash`), its classification is missing, or
+reclassification is forced. Unchanged documents are skipped, so re-runs are
+cheap. Reclassifying replaces a document's prior semantic rows atomically.
+
+### Commands
+
+```bash
+catalog classify                          # classify all changed/new documents
+catalog classify --artifact-id doc_abc123 # one document
+catalog classify --force                  # reclassify everything
+
+catalog classification-stats              # document types + knowledge-discovery analytics
+catalog show-summary --artifact-id doc_abc123
+catalog show-decisions [--min-confidence 0.7]
+catalog show-risks
+catalog show-capabilities
+catalog show-relationships
+```
+
+`classification-stats` answers the knowledge-discovery questions without reading
+every document: what kinds of documents exist, the top domains and capabilities,
+the most common technologies and most referenced concepts, the most common
+decision themes, the risks recurring across multiple documents, and which
+concepts connect multiple domains.
+
+The active provider is selected with `--llm-config` (default `config/llm.yml`).
+
+### Semantic data model
+
+- `document_classifications` — one row per document: `document_type`,
+  `type_confidence`, `domains` (JSON), `short_summary`, `long_summary`,
+  `knowledge_type`, `review_status`, `model`, `source_hash`, `created_at`.
+- `candidate_entities`, `candidate_capabilities`, `candidate_decisions`,
+  `candidate_risks`, `candidate_relationships` — the proposed knowledge, each
+  with confidence, supporting text, knowledge type, review status, and
+  provenance.
+- `classification_runs` — per-run statistics (documents processed/skipped,
+  errors, model, timestamps).
+
 ## Future extension points
 
-The normalized links and classifications produced here are designed to support
-later phases without changing extraction or the scanner: link resolution,
-broken-link checking, fetching metadata from SharePoint/Confluence/ADO, LLM
-relationship classification, RDF export, and graph loading into Jena/Fuseki.
+The normalized links and classifications produced so far are designed to support
+later phases without changing extraction or the scanner. The semantic layer is
+deliberately the boundary where the following future modules will plug in — they
+are **not** implemented in this phase:
+
+- `knowledge_review.py` — the human approval workflow that promotes observations
+  and hypotheses toward facts.
+- `rdf_export.py` / `graph_export.py` — export approved knowledge to RDF or a
+  property graph.
+- `jena_loader.py` — load triples into Jena/Fuseki.
+- `graphrag_builder.py` — build a GraphRAG index.
+
+Earlier deterministic phases also remain open for extension: link resolution,
+broken-link checking, and fetching metadata from SharePoint/Confluence/ADO.
 
 ## Extending the scanner
 

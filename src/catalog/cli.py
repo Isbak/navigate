@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 from pathlib import Path
 
@@ -10,6 +11,11 @@ from .extraction import extract_all
 from .links import discover_links, load_link_config
 from .links import repository as link_repo
 from .scanner import scan
+from .semantic import analytics as sem_analytics
+from .semantic import repository as sem_repo
+from .semantic.config import load_llm_config
+from .semantic.providers import LLMError, build_provider
+from .semantic.service import classify_documents
 from .watcher import watch
 
 
@@ -38,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="config/sources.yml")
     parser.add_argument("--cache", default="cache")
     parser.add_argument("--link-config", default="config/link_patterns.yml")
+    parser.add_argument("--llm-config", default="config/llm.yml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
@@ -58,6 +65,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("show-stale-links")
     sub.add_parser("export-links-csv")
+
+    classify = sub.add_parser("classify")
+    classify.add_argument("--artifact-id", default=None)
+    classify.add_argument("--force", action="store_true")
+
+    sub.add_parser("classification-stats")
+
+    summary = sub.add_parser("show-summary")
+    summary.add_argument("--artifact-id", required=True)
+
+    for name in ("show-decisions", "show-risks", "show-capabilities", "show-relationships"):
+        p = sub.add_parser(name)
+        p.add_argument("--min-confidence", type=float, default=0.0)
     return parser
 
 
@@ -207,6 +227,160 @@ def _cmd_export_links_csv(args) -> None:
     print(f"Exported {_fmt(len(rows))} links to {out_path}")
 
 
+def _cmd_classify(args) -> None:
+    config = load_llm_config(args.llm_config)
+    try:
+        provider = build_provider(config)
+    except LLMError as exc:
+        print(f"Error: {exc}")
+        return
+    print(f"Classifying with {config.provider} model {provider.model} ...")
+    stats = classify_documents(
+        db_path=args.db,
+        cache_dir=args.cache,
+        provider=provider,
+        artifact_id=args.artifact_id,
+        force=args.force,
+        max_input_chars=config.max_input_chars,
+    )
+    print("Classification complete:")
+    print(f"Documents processed: {_fmt(stats.documents_processed)}")
+    print(f"Documents skipped (unchanged): {_fmt(stats.documents_skipped)}")
+    print(f"Errors: {_fmt(stats.errors)}")
+    print(f"Candidate entities: {_fmt(stats.entities)}")
+    print(f"Candidate capabilities: {_fmt(stats.capabilities)}")
+    print(f"Candidate decisions: {_fmt(stats.decisions)}")
+    print(f"Candidate risks: {_fmt(stats.risks)}")
+    print(f"Candidate relationships: {_fmt(stats.relationships)}")
+    if stats.by_document_type:
+        print("\nDocument types (this run):")
+        for dtype, count in sorted(
+            stats.by_document_type.items(), key=lambda kv: (-kv[1], kv[0])
+        ):
+            print(f"  {dtype}: {_fmt(count)}")
+
+
+def _print_ranked(title: str, rows: list[dict], value_key: str, name_key: str = "name") -> None:
+    print(f"\n{title}:")
+    if not rows:
+        print("  (none)")
+        return
+    for row in rows:
+        print(f"  {_fmt(row[value_key])}  {row[name_key]}")
+
+
+def _cmd_classification_stats(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        total = sem_repo.count_classifications(conn)
+        print(f"Classified documents: {_fmt(total)}")
+        if total == 0:
+            print("No classifications yet. Run: catalog classify")
+            return
+
+        print("\nDocument types:")
+        for row in sem_repo.document_type_counts(conn):
+            print(f"  {row['key']}: {_fmt(row['count'])}")
+
+        print("\nCandidate objects (knowledge proposed, not facts):")
+        for table, label in (
+            ("candidate_entities", "entities"),
+            ("candidate_capabilities", "capabilities"),
+            ("candidate_decisions", "decisions"),
+            ("candidate_risks", "risks"),
+            ("candidate_relationships", "relationships"),
+        ):
+            print(f"  {label}: {_fmt(sem_repo.count_rows(conn, table))}")
+
+        _print_ranked("Top domains (by documents)", sem_analytics.top_domains(conn, 10), "documents")
+        _print_ranked("Top capabilities (by documents)", sem_analytics.top_capabilities(conn, 10), "documents")
+        _print_ranked("Most common technologies", sem_analytics.top_technologies(conn, 10), "documents")
+        _print_ranked("Most referenced concepts", sem_analytics.top_concepts(conn, 10), "documents")
+
+        print("\nMost common decision themes:")
+        themes = sem_analytics.decision_themes(conn, 10)
+        if not themes:
+            print("  (none)")
+        for t in themes:
+            print(f"  {_fmt(t['documents'])} docs  {t['text']}")
+
+        print("\nRisks across multiple documents:")
+        risks = [r for r in sem_analytics.risk_themes(conn, 20) if r["documents"] > 1]
+        if not risks:
+            print("  (none)")
+        for r in risks[:10]:
+            print(f"  {_fmt(r['documents'])} docs  {r['text']}")
+
+        print("\nConcepts connecting multiple domains:")
+        concepts = sem_analytics.concepts_connecting_domains(conn, min_domains=2, limit=10)
+        if not concepts:
+            print("  (none)")
+        for c in concepts:
+            print(f"  {c['name']} -> {', '.join(c['domains'])}")
+
+
+def _cmd_show_summary(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        row = sem_repo.get_classification(conn, args.artifact_id)
+    if row is None:
+        print(f"No classification for {args.artifact_id}. Run: catalog classify")
+        return
+    print(f"Artifact: {row['artifact_id']}")
+    print(f"Type: {row['document_type']} (confidence {row['type_confidence']:.2f})")
+    domains = json.loads(row["domains"] or "[]")
+    if domains:
+        print("Domains: " + ", ".join(f"{d['domain']} ({d['confidence']:.2f})" for d in domains))
+    print(f"Model: {row['model']}    Reviewed: {row['review_status']}")
+    print(f"\nShort summary:\n{row['short_summary']}")
+    print(f"\nLong summary:\n{row['long_summary']}")
+
+
+def _cmd_show_decisions(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        rows = sem_repo.decisions(conn, args.min_confidence)
+    for row in rows:
+        quote = f"  — \"{row['supporting_text']}\"" if row["supporting_text"] else ""
+        print(f"[{row['confidence']:.2f}] {row['decision_text']} ({row['artifact_id']}){quote}")
+    if not rows:
+        print("No candidate decisions.")
+
+
+def _cmd_show_risks(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        rows = sem_repo.risks(conn, args.min_confidence)
+    for row in rows:
+        quote = f"  — \"{row['supporting_text']}\"" if row["supporting_text"] else ""
+        print(f"[{row['confidence']:.2f}] {row['risk_description']} ({row['artifact_id']}){quote}")
+    if not rows:
+        print("No candidate risks.")
+
+
+def _cmd_show_capabilities(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        rows = sem_repo.capabilities(conn, args.min_confidence)
+    for row in rows:
+        print(f"[{row['confidence']:.2f}] {row['name']} ({row['artifact_id']})")
+    if not rows:
+        print("No candidate capabilities.")
+
+
+def _cmd_show_relationships(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        rows = sem_repo.relationships(conn, args.min_confidence)
+    for row in rows:
+        print(
+            f"[{row['confidence']:.2f}] {row['subject']} {row['predicate']} "
+            f"{row['object']} ({row['artifact_id']})"
+        )
+    if not rows:
+        print("No candidate relationships.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -236,6 +410,20 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_show_stale_links(args)
     elif args.command == "export-links-csv":
         _cmd_export_links_csv(args)
+    elif args.command == "classify":
+        _cmd_classify(args)
+    elif args.command == "classification-stats":
+        _cmd_classification_stats(args)
+    elif args.command == "show-summary":
+        _cmd_show_summary(args)
+    elif args.command == "show-decisions":
+        _cmd_show_decisions(args)
+    elif args.command == "show-risks":
+        _cmd_show_risks(args)
+    elif args.command == "show-capabilities":
+        _cmd_show_capabilities(args)
+    elif args.command == "show-relationships":
+        _cmd_show_relationships(args)
     return 0
 
 

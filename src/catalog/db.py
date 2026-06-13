@@ -78,6 +78,112 @@ CREATE TABLE IF NOT EXISTS scan_runs(
   duplicate_files INTEGER DEFAULT 0,
   deleted_files INTEGER DEFAULT 0
 );
+-- ---------------------------------------------------------------------------
+-- Semantic classification layer (Prompt #5).
+--
+-- These tables hold what an LLM *proposes* about each document: classifications,
+-- observations, hypotheses, and candidate relationships. Nothing here is a fact.
+-- Every row carries provenance (artifact_id, model, created_at), a confidence in
+-- [0.0, 1.0], the supporting_text it was derived from, a knowledge_type
+-- (OBSERVATION or HYPOTHESIS - never FACT in this phase), and a review_status
+-- that starts at NEW for a human to approve later. All of these are fully
+-- regenerable from the cache via ``catalog classify``.
+--
+-- ``artifact_id`` references the content-addressed artifact id (``doc_<sha>``),
+-- which is intentionally not UNIQUE in ``artifacts`` (duplicates share an id), so
+-- the relationship is modeled with an index rather than an enforced FK - the same
+-- approach used by the ``links`` table.
+CREATE TABLE IF NOT EXISTS document_classifications(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  document_type TEXT,
+  type_confidence REAL,
+  domains TEXT,
+  short_summary TEXT,
+  long_summary TEXT,
+  knowledge_type TEXT DEFAULT 'OBSERVATION',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  source_hash TEXT,
+  created_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_classifications_artifact
+  ON document_classifications(artifact_id);
+CREATE TABLE IF NOT EXISTS candidate_entities(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  entity_type TEXT,
+  name TEXT,
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'OBSERVATION',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_entities_artifact ON candidate_entities(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_entities_type ON candidate_entities(entity_type);
+CREATE INDEX IF NOT EXISTS idx_candidate_entities_name ON candidate_entities(name);
+CREATE TABLE IF NOT EXISTS candidate_capabilities(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  name TEXT,
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'OBSERVATION',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_capabilities_artifact ON candidate_capabilities(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_capabilities_name ON candidate_capabilities(name);
+CREATE TABLE IF NOT EXISTS candidate_decisions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  decision_text TEXT,
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'HYPOTHESIS',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_decisions_artifact ON candidate_decisions(artifact_id);
+CREATE TABLE IF NOT EXISTS candidate_risks(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  risk_description TEXT,
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'HYPOTHESIS',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_risks_artifact ON candidate_risks(artifact_id);
+CREATE TABLE IF NOT EXISTS candidate_relationships(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  subject TEXT,
+  predicate TEXT,
+  object TEXT,
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'HYPOTHESIS',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_relationships_artifact ON candidate_relationships(artifact_id);
+CREATE TABLE IF NOT EXISTS classification_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT,
+  completed_at TEXT,
+  model TEXT,
+  documents_processed INTEGER,
+  documents_skipped INTEGER,
+  errors INTEGER
+);
 """
 
 # Columns expected on a current ``artifacts`` table; a mismatch triggers a
@@ -144,6 +250,50 @@ def _needs_links_rebuild(conn: sqlite3.Connection) -> bool:
     return _columns_mismatch(conn, "links", _EXPECTED_LINK_COLUMNS)
 
 
+# Expected columns for the semantic-layer tables. They are fully regenerable
+# from the cache via ``catalog classify``, so a layout change drops and recreates
+# the affected table rather than migrating it in place.
+_EXPECTED_SEMANTIC_COLUMNS = {
+    "document_classifications": {
+        "id", "artifact_id", "document_type", "type_confidence", "domains",
+        "short_summary", "long_summary", "knowledge_type", "review_status",
+        "model", "source_hash", "created_at",
+    },
+    "candidate_entities": {
+        "id", "artifact_id", "entity_type", "name", "confidence",
+        "supporting_text", "knowledge_type", "review_status", "model", "created_at",
+    },
+    "candidate_capabilities": {
+        "id", "artifact_id", "name", "confidence", "supporting_text",
+        "knowledge_type", "review_status", "model", "created_at",
+    },
+    "candidate_decisions": {
+        "id", "artifact_id", "decision_text", "confidence", "supporting_text",
+        "knowledge_type", "review_status", "model", "created_at",
+    },
+    "candidate_risks": {
+        "id", "artifact_id", "risk_description", "confidence", "supporting_text",
+        "knowledge_type", "review_status", "model", "created_at",
+    },
+    "candidate_relationships": {
+        "id", "artifact_id", "subject", "predicate", "object", "confidence",
+        "supporting_text", "knowledge_type", "review_status", "model", "created_at",
+    },
+    "classification_runs": {
+        "id", "started_at", "completed_at", "model",
+        "documents_processed", "documents_skipped", "errors",
+    },
+}
+
+
+def _stale_semantic_tables(conn: sqlite3.Connection) -> list[str]:
+    return [
+        table
+        for table, expected in _EXPECTED_SEMANTIC_COLUMNS.items()
+        if _columns_mismatch(conn, table, expected)
+    ]
+
+
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     """Create the schema, rebuilding the local index if it predates this layout.
 
@@ -164,6 +314,10 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             # The links layout changed independently of artifacts; the links
             # table is fully regenerable from the cache via ``discover-links``.
             conn.executescript("DROP TABLE IF EXISTS links;")
+        # Semantic tables evolve independently and are regenerable via
+        # ``catalog classify``; drop any whose columns no longer match.
+        for table in _stale_semantic_tables(conn):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.executescript(SCHEMA)
 
 

@@ -1,0 +1,11 @@
+# All approved capabilities, most confident first.
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?capability ?label ?confidence
+WHERE {
+    ?capability a kg:Capability .
+    OPTIONAL { ?capability rdfs:label ?label }
+    OPTIONAL { ?capability kg:confidence ?confidence }
+}
+ORDER BY DESC(?confidence)

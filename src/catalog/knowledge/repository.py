@@ -450,6 +450,54 @@ def relationships_by_status(
     ).fetchall()
 
 
+# -- RDF projection (Prompt #7): only APPROVED data is exported ----------------
+
+def approved_objects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return APPROVED knowledge objects in stable id order, for RDF export."""
+
+    return conn.execute(
+        "SELECT * FROM knowledge_objects WHERE status = ? ORDER BY id",
+        (ReviewState.APPROVED.value,),
+    ).fetchall()
+
+
+def approved_relationships(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """APPROVED relationships whose source and target objects are both APPROVED.
+
+    A relationship is only meaningful in the projection if both endpoints made it
+    into the exported knowledge graph, so endpoints are constrained to APPROVED.
+    """
+
+    return conn.execute(
+        """
+        SELECT r.* FROM knowledge_relationships r
+        JOIN knowledge_objects s ON s.id = r.source_object AND s.status = ?
+        JOIN knowledge_objects t ON t.id = r.target_object AND t.status = ?
+        WHERE r.review_status = ?
+        ORDER BY r.id
+        """,
+        (ReviewState.APPROVED.value,) * 3,
+    ).fetchall()
+
+
+def evidence_for_approved_objects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Evidence rows for APPROVED objects, carrying the object's type and id.
+
+    The extra ``object_type`` / ``object_id`` columns let the RDF layer mint the
+    ``kg:supportedBy`` link without a second lookup.
+    """
+
+    return conn.execute(
+        """
+        SELECT e.*, o.object_type AS object_type, o.id AS object_id
+        FROM knowledge_evidence e
+        JOIN knowledge_objects o ON o.id = e.knowledge_object_id AND o.status = ?
+        ORDER BY e.id
+        """,
+        (ReviewState.APPROVED.value,),
+    ).fetchall()
+
+
 __all__ = [
     "gather_mentions",
     "gather_candidate_relationships",
@@ -477,4 +525,7 @@ __all__ = [
     "relationships_for_object",
     "all_relationships",
     "relationships_by_status",
+    "approved_objects",
+    "approved_relationships",
+    "evidence_for_approved_objects",
 ]

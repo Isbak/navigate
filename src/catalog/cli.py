@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .db import connect, init_db, latest_scan_run
 from .extraction import extract_all
+from .governance.cli import add_governance_parser, run_governance
 from .graph.cli import add_graph_parser, run_graph
 from .graphrag.cli import add_graphrag_parsers, run_graphrag
 from .links import discover_links, load_link_config
@@ -59,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--link-config", default="config/link_patterns.yml")
     parser.add_argument("--llm-config", default="config/llm.yml")
     parser.add_argument("--jena-config", default="config/jena.yml")
+    parser.add_argument("--governance-config", default="config/governance.yml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
@@ -148,6 +150,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- GraphRAG knowledge assistant (Prompt #9) --
     add_graphrag_parsers(sub)
+
+    # -- knowledge governance and continuous operations (Prompt #10) --
+    add_governance_parser(sub)
     return parser
 
 
@@ -807,6 +812,8 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_fuseki_clear(args)
     elif args.command == "graph":
         run_graph(args)
+    elif args.command == "governance":
+        run_governance(args)
     elif args.command in {"ask", "explain", "impact", "compare", "path-reason"}:
         run_graphrag(args)
     return 0

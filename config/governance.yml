@@ -1,0 +1,60 @@
+# Knowledge governance rules (Prompt #10).
+#
+# Everything here is configurable: the freshness thresholds, quality weights,
+# drift sensitivity, and the domain -> owner map that domain governance uses.
+# All values fall back to the defaults baked into ``catalog.governance.config``
+# if the file (or any key) is missing, so governance runs out of the box.
+
+freshness:
+  # Days with no fresh evidence before an object ages out of each state.
+  aging_days: 180      # no evidence seen for 180 days -> AGING
+  stale_days: 365      # no evidence seen for 365 days -> STALE
+  archived_days: 730   # the horizon at which the freshness score reaches 0.0
+
+review:
+  # An approved object with no review in this many days raises a stale-review alert.
+  stale_review_days: 365
+
+quality:
+  # Weights of the six quality factors. They are normalized, so they need not
+  # sum to exactly 1.0; the final score is scaled to 0-100.
+  weights:
+    evidence: 0.20
+    review: 0.20
+    freshness: 0.15
+    consistency: 0.15
+    owner: 0.10
+    confidence: 0.20
+  # Evidence count at which the evidence factor saturates to 1.0.
+  target_evidence: 5
+  # Below this score an object is flagged as low quality.
+  low_quality_threshold: 60.0
+
+drift:
+  # An object whose document support falls to this fraction of its previous
+  # peak (or below) raises a disappearing-evidence drift alert.
+  evidence_drop_ratio: 0.5
+  # A removed object that previously had at least this many supporting
+  # documents is considered "established"; if a new object of the same type
+  # appears in the same run it is flagged as a possible terminology change.
+  terminology_min_documents: 5
+  # Confidence movement (in absolute terms) worth recording in the change log.
+  min_confidence_delta: 0.05
+
+domains:
+  - name: Digital Transformation
+    owner: Digital Platform Team
+  - name: Architecture
+    owner: Architecture Guild
+  - name: Leadership
+    owner: Executive Team
+  - name: Test & Release
+    owner: Test & Release Team
+  - name: Data
+    owner: Data Team
+  - name: Operations
+    owner: Operations Team
+
+ingestion:
+  # Default cadence for ``catalog governance ingest`` (daily | weekly | manual).
+  schedule: manual

@@ -97,3 +97,45 @@ def approved_graph(tmp_path) -> SeededGraph:
     with connect(db) as conn:
         object_ids = [r["id"] for r in conn.execute("SELECT id FROM knowledge_objects")]
     return SeededGraph(db=db, object_ids=object_ids)
+
+
+# -- governance fixtures (Prompt #10) -----------------------------------------
+
+def _seed_governance_candidates(conn) -> None:
+    """Seed the same graph as ``approved_graph`` plus document classifications.
+
+    Classifications carry the domains that domain governance maps objects onto,
+    so the governed fixture exercises domain health too.
+    """
+
+    _seed_candidates(conn)
+    # Document classifications give objects a domain via their mentions.
+    conn.execute(
+        "INSERT INTO document_classifications(artifact_id, document_type, "
+        "type_confidence, domains, short_summary, long_summary, model, created_at) "
+        "VALUES('doc_a','strategy',0.9,?,'s','l','stub','t')",
+        ('[{"domain": "Test & Release", "confidence": 0.9}]',),
+    )
+    conn.execute(
+        "INSERT INTO document_classifications(artifact_id, document_type, "
+        "type_confidence, domains, short_summary, long_summary, model, created_at) "
+        "VALUES('doc_b','strategy',0.9,?,'s','l','stub','t')",
+        ('[{"domain": "Operations", "confidence": 0.8}]',),
+    )
+
+
+@pytest.fixture
+def governed_db(tmp_path) -> str:
+    """A consolidated graph with one governance scan already run."""
+
+    from catalog.governance.config import load_governance_config
+    from catalog.governance.service import run_scan
+
+    db = str(tmp_path / "catalog.sqlite")
+    init_db(db)
+    with connect(db) as conn:
+        _seed_governance_candidates(conn)
+        conn.commit()
+    consolidate(db)
+    run_scan(db, load_governance_config("config/governance.yml"))
+    return db

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from catalog.events import ScanStatus
@@ -13,7 +14,7 @@ def _write_config(tmp_path, docs, exclude="[]", source_system="test"):
     return config
 
 
-def test_scan_indexes_text_file_and_links(tmp_path):
+def test_scan_indexes_text_file_and_caches_links(tmp_path):
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "note.md").write_text(
@@ -34,12 +35,17 @@ def test_scan_indexes_text_file_and_links(tmp_path):
     assert artifact["source_system"] == "test"
     assert artifact["id"].startswith("doc_")
     assert artifact["scan_status"] == "RAW"
-    assert (cache / artifact["id"] / "extracted.txt").read_text(
-        encoding="utf-8"
-    ).startswith("# Note")
-    link = conn.execute("SELECT * FROM links").fetchone()
-    assert link["target_system"] == "github"
-    assert link["source_path"] == artifact["path"]
+
+    artifact_cache = cache / artifact["id"]
+    assert (artifact_cache / "extracted.txt").read_text(encoding="utf-8").startswith("# Note")
+
+    # Extraction writes raw links to the cache; the DB is populated separately by
+    # the discovery layer, so the links table is still empty after a scan.
+    raw_links = json.loads((artifact_cache / "links.json").read_text(encoding="utf-8"))
+    assert {link["raw_url"] for link in raw_links} == {"https://github.com/acme/repo"}
+    metadata = json.loads((artifact_cache / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["artifact_id"] == artifact["id"]
+    assert conn.execute("SELECT COUNT(*) FROM links").fetchone()[0] == 0
 
 
 def test_duplicate_content_shares_id_and_is_flagged(tmp_path):

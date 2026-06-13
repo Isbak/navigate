@@ -1,0 +1,32 @@
+# Link classification configuration.
+#
+# This file is optional. When absent, link discovery falls back to the built-in
+# deterministic URL patterns. Use it to declare which domains count as your
+# organization's *internal* knowledge systems and to extend system matching with
+# domains the built-in rules don't recognize.
+
+# Domains (optionally scoped to a path) that should be treated as internal.
+# Matched against the URL host and host+path, so a sub-path scope works:
+#   "dev.azure.com/company"  -> only that org's ADO is internal.
+internal_domains:
+  - "company.sharepoint.com"
+  - "company.atlassian.net"
+  - "dev.azure.com/company"
+  - "wiki.company.com"
+
+# Extra domain -> system mappings, layered on top of the built-in patterns.
+systems:
+  sharepoint:
+    domains:
+      - "sharepoint.com"
+  confluence:
+    domains:
+      - "atlassian.net"
+      - "wiki.company.com"
+  jira:
+    domains:
+      - "atlassian.net"
+  azure_devops:
+    domains:
+      - "dev.azure.com"
+      - "visualstudio.com"

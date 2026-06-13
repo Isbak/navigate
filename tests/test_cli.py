@@ -58,3 +58,71 @@ def test_stats_without_scan_reports_no_runs(tmp_path, capsys):
     assert main(_base_args(tmp_path, config) + ["stats"]) == 0
     out = capsys.readouterr().out
     assert "No scans recorded yet" in out
+
+
+def test_discover_links_and_link_stats_flow(tmp_path, capsys):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "note.md").write_text(
+        "See [repo](https://github.com/acme/repo) and "
+        "[wiki](https://contoso.atlassian.net/wiki/spaces/X/pages/1)",
+        encoding="utf-8",
+    )
+    config = _write_config(tmp_path, docs)
+    base = _base_args(tmp_path, config)
+
+    assert main(base + ["scan"]) == 0
+    capsys.readouterr()
+
+    assert main(base + ["discover-links"]) == 0
+    out = capsys.readouterr().out
+    assert "Link discovery complete" in out
+    assert "Links found: 2" in out
+    assert "New links: 2" in out
+
+    assert main(base + ["link-stats"]) == 0
+    out = capsys.readouterr().out
+    assert "Total links: 2" in out
+    assert "github" in out
+    assert "confluence" in out
+
+
+def test_show_links_filters_by_system(tmp_path, capsys):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "note.md").write_text(
+        "[repo](https://github.com/acme/repo)", encoding="utf-8"
+    )
+    config = _write_config(tmp_path, docs)
+    base = _base_args(tmp_path, config)
+    main(base + ["scan"])
+    main(base + ["discover-links"])
+    capsys.readouterr()
+
+    assert main(base + ["show-links", "--system", "github"]) == 0
+    out = capsys.readouterr().out
+    assert "github.com/acme/repo" in out
+
+    assert main(base + ["show-links", "--system", "teams"]) == 0
+    assert "No matching links." in capsys.readouterr().out
+
+
+def test_export_links_csv(tmp_path, capsys, monkeypatch):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "note.md").write_text(
+        "[repo](https://github.com/acme/repo)", encoding="utf-8"
+    )
+    config = _write_config(tmp_path, docs)
+    base = _base_args(tmp_path, config)
+    main(base + ["scan"])
+    main(base + ["discover-links"])
+    capsys.readouterr()
+
+    monkeypatch.chdir(tmp_path)
+    assert main(base + ["export-links-csv"]) == 0
+    out = capsys.readouterr().out
+    assert "Exported 1 links" in out
+    exported = (tmp_path / "exports" / "links.csv").read_text(encoding="utf-8")
+    assert "normalized_url" in exported
+    assert "github.com/acme/repo" in exported

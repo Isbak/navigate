@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_DB_PATH = Path("data/catalog.sqlite")
 
@@ -29,17 +28,45 @@ CREATE TABLE IF NOT EXISTS artifacts(
 CREATE INDEX IF NOT EXISTS idx_artifacts_sha256 ON artifacts(sha256);
 CREATE INDEX IF NOT EXISTS idx_artifacts_id ON artifacts(id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_status ON artifacts(scan_status);
+-- Discovered hyperlinks, normalized and classified by the link discovery layer.
+--
+-- NOTE on ``source_artifact_id``: it references the content-addressed artifact
+-- id (``doc_<sha>``). That column is intentionally NOT unique in ``artifacts``
+-- (byte-identical duplicates share an id, which is how duplicates are detected),
+-- and SQLite can only enforce a FOREIGN KEY against a UNIQUE/PRIMARY KEY parent.
+-- We therefore model the relationship with an index rather than an enforced
+-- constraint; integrity is maintained by the discovery service.
 CREATE TABLE IF NOT EXISTS links(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_path TEXT NOT NULL,
-  target_url TEXT NOT NULL,
+  source_artifact_id TEXT NOT NULL,
+  raw_url TEXT NOT NULL,
+  normalized_url TEXT NOT NULL,
   anchor_text TEXT,
   target_system TEXT,
   target_type TEXT,
+  link_kind TEXT,
   discovered_at TEXT,
-  FOREIGN KEY(source_path) REFERENCES artifacts(path) ON DELETE CASCADE
+  last_seen_at TEXT,
+  status TEXT DEFAULT 'ACTIVE'
 );
-CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_path);
+CREATE INDEX IF NOT EXISTS idx_links_artifact ON links(source_artifact_id);
+CREATE INDEX IF NOT EXISTS idx_links_normalized ON links(normalized_url);
+CREATE INDEX IF NOT EXISTS idx_links_system ON links(target_system);
+-- Deduplication key: source_artifact_id + normalized_url + anchor_text.
+-- COALESCE keeps NULL and missing anchor text from being treated as distinct.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_dedup
+  ON links(source_artifact_id, normalized_url, COALESCE(anchor_text, ''));
+CREATE TABLE IF NOT EXISTS link_scan_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT,
+  completed_at TEXT,
+  artifacts_processed INTEGER,
+  links_found INTEGER,
+  links_new INTEGER,
+  links_updated INTEGER,
+  links_removed INTEGER,
+  errors INTEGER
+);
 CREATE TABLE IF NOT EXISTS scan_runs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT,
@@ -70,6 +97,23 @@ _EXPECTED_ARTIFACT_COLUMNS = {
     "last_scanned_at",
 }
 
+# Columns expected on a current ``links`` table. The link schema evolved (it now
+# stores normalized/classified links keyed by artifact id), so an older layout is
+# dropped and recreated rather than migrated in place.
+_EXPECTED_LINK_COLUMNS = {
+    "id",
+    "source_artifact_id",
+    "raw_url",
+    "normalized_url",
+    "anchor_text",
+    "target_system",
+    "target_type",
+    "link_kind",
+    "discovered_at",
+    "last_seen_at",
+    "status",
+}
+
 
 def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     path = Path(db_path)
@@ -81,14 +125,23 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def _needs_rebuild(conn: sqlite3.Connection) -> bool:
+def _columns_mismatch(conn: sqlite3.Connection, table: str, expected: set[str]) -> bool:
     row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='artifacts'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
     ).fetchone()
     if row is None:
         return False  # fresh database; CREATE statements handle it
-    columns = {r["name"] for r in conn.execute("PRAGMA table_info(artifacts)")}
-    return columns != _EXPECTED_ARTIFACT_COLUMNS
+    columns = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+    return columns != expected
+
+
+def _needs_rebuild(conn: sqlite3.Connection) -> bool:
+    return _columns_mismatch(conn, "artifacts", _EXPECTED_ARTIFACT_COLUMNS)
+
+
+def _needs_links_rebuild(conn: sqlite3.Connection) -> bool:
+    return _columns_mismatch(conn, "links", _EXPECTED_LINK_COLUMNS)
 
 
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
@@ -103,9 +156,14 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         if _needs_rebuild(conn):
             conn.executescript(
                 "DROP TABLE IF EXISTS links;"
+                "DROP TABLE IF EXISTS link_scan_runs;"
                 "DROP TABLE IF EXISTS scan_runs;"
                 "DROP TABLE IF EXISTS artifacts;"
             )
+        elif _needs_links_rebuild(conn):
+            # The links layout changed independently of artifacts; the links
+            # table is fully regenerable from the cache via ``discover-links``.
+            conn.executescript("DROP TABLE IF EXISTS links;")
         conn.executescript(SCHEMA)
 
 
@@ -149,12 +207,3 @@ def record_scan_run(conn: sqlite3.Connection, started_at: str, finished_at: str,
 
 def latest_scan_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
-
-
-def replace_links(conn: sqlite3.Connection, source_path: str, links: Iterable[dict]) -> None:
-    conn.execute("DELETE FROM links WHERE source_path = ?", (source_path,))
-    conn.executemany(
-        """INSERT INTO links(source_path,target_url,anchor_text,target_system,target_type,discovered_at)
-           VALUES(:source_path,:target_url,:anchor_text,:target_system,:target_type,:discovered_at)""",
-        list(links),
-    )

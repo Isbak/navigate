@@ -536,6 +536,8 @@ catalog search-knowledge "release"
 catalog review-candidates          # PROPOSED objects/relationships + duplicates
 catalog approve-object <id>
 catalog reject-object <id>
+catalog approve-relationship <id>  # relationship id from review-candidates / show-object
+catalog reject-relationship <id>
 catalog export-graph-json          # writes exports/graph/{nodes,edges}.json
 ```
 

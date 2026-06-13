@@ -18,7 +18,7 @@ from .knowledge import repository as know_repo
 from .knowledge.export import export_graph_json
 from .knowledge.models import ReviewState
 from .knowledge.prompts import make_merge_judge
-from .knowledge.service import consolidate, review_object
+from .knowledge.service import consolidate, review_object, review_relationship
 from .rdf.config import load_jena_config
 from .rdf.export import DEFAULT_OUT_DIR as RDF_OUT_DIR
 from .rdf.export import FORMATS as RDF_FORMATS
@@ -117,6 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     reject = sub.add_parser("reject-object")
     reject.add_argument("object_id")
+
+    approve_rel = sub.add_parser("approve-relationship")
+    approve_rel.add_argument("relationship_id", type=int)
+
+    reject_rel = sub.add_parser("reject-relationship")
+    reject_rel.add_argument("relationship_id", type=int)
 
     sub.add_parser("export-graph-json")
 
@@ -572,10 +578,10 @@ def _cmd_show_object(args) -> None:
     for r in rels:
         if r["source_object"] == args.object_id:
             print(f"  {r['predicate']} -> {r['target_object']} "
-                  f"[{r['confidence']:.2f}] ({r['review_status']})")
+                  f"[{r['confidence']:.2f}] ({r['review_status']}) id={r['id']}")
         else:
             print(f"  {r['source_object']} -> {r['predicate']} (this) "
-                  f"[{r['confidence']:.2f}] ({r['review_status']})")
+                  f"[{r['confidence']:.2f}] ({r['review_status']}) id={r['id']}")
 
     print("\nEvidence:")
     if not evidence:
@@ -617,7 +623,7 @@ def _cmd_review_candidates(args) -> None:
 
     print(f"\nProposed relationships awaiting review: {_fmt(len(rels))}")
     for r in rels[:30]:
-        print(f"  [{r['confidence']:.2f}] {r['source_object']} {r['predicate']} {r['target_object']}")
+        print(f"  [{r['confidence']:.2f}] {r['source_object']} {r['predicate']} {r['target_object']}  id={r['id']}")
 
     print(f"\nDuplicate candidates (possible merges): {_fmt(len(dups))}")
     for d in dups:
@@ -634,6 +640,15 @@ def _cmd_review_object(args, status: str) -> None:
         print(f"{args.object_id} -> {status}")
     else:
         print(f"No knowledge object with id {args.object_id!r}.")
+
+
+def _cmd_review_relationship(args, status: str) -> None:
+    init_db(args.db)
+    changed = review_relationship(args.db, args.relationship_id, status)
+    if changed:
+        print(f"relationship {args.relationship_id} -> {status}")
+    else:
+        print(f"No knowledge relationship with id {args.relationship_id!r}.")
 
 
 def _cmd_export_graph_json(args) -> None:
@@ -774,6 +789,10 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_review_object(args, ReviewState.APPROVED.value)
     elif args.command == "reject-object":
         _cmd_review_object(args, ReviewState.REJECTED.value)
+    elif args.command == "approve-relationship":
+        _cmd_review_relationship(args, ReviewState.APPROVED.value)
+    elif args.command == "reject-relationship":
+        _cmd_review_relationship(args, ReviewState.REJECTED.value)
     elif args.command == "export-graph-json":
         _cmd_export_graph_json(args)
     elif args.command == "rdf-export":

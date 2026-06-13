@@ -14,18 +14,12 @@ neighbour, metrics, health, and export tests all exercise the same graph:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 import pytest
 
 from catalog.db import connect, init_db
-from catalog.knowledge import repository as repo
 from catalog.knowledge.models import ReviewState
-from catalog.knowledge.service import consolidate, review_object
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from catalog.knowledge.service import consolidate, review_object, review_relationship
 
 
 def _seed_candidates(conn) -> None:
@@ -79,11 +73,10 @@ def _approve_everything(db) -> None:
         object_ids = [r["id"] for r in conn.execute("SELECT id FROM knowledge_objects")]
     for object_id in object_ids:
         review_object(db, object_id, ReviewState.APPROVED.value)
-    now = _now()
     with connect(db) as conn:
-        for row in conn.execute("SELECT id FROM knowledge_relationships").fetchall():
-            repo.set_relationship_status(conn, row["id"], ReviewState.APPROVED.value, now)
-        conn.commit()
+        rel_ids = [r["id"] for r in conn.execute("SELECT id FROM knowledge_relationships")]
+    for rel_id in rel_ids:
+        review_relationship(db, rel_id, ReviewState.APPROVED.value)
 
 
 @dataclass

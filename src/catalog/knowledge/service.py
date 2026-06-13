@@ -403,8 +403,45 @@ def review_object(
     return changed
 
 
+def review_relationship(
+    db_path: str | Path,
+    relationship_id: int,
+    status: str,
+    *,
+    note: str = "",
+    reviewer: str = "cli",
+) -> bool:
+    """Set a relationship's review status and record it in the audit trail.
+
+    Mirrors :func:`review_object` for the typed links between objects. A normal
+    ``consolidate`` preserves the resulting status (it is keyed on the
+    ``(source, predicate, target)`` triple, not the row id), so an approval
+    survives re-consolidation; ``consolidate(force=True)`` discards it.
+    """
+
+    if status not in {s.value for s in ReviewState}:
+        raise ValueError(f"Unknown review status: {status}")
+    now = _utc_now()
+    with connect(db_path) as conn:
+        changed = repo.set_relationship_status(conn, relationship_id, status, now)
+        if changed:
+            repo.record_review(
+                conn,
+                target_kind="relationship",
+                target_id=str(relationship_id),
+                action=status,
+                confidence=None,
+                note=note,
+                reviewer=reviewer,
+                created_at=now,
+            )
+            conn.commit()
+    return changed
+
+
 __all__ = [
     "ConsolidationStats",
     "consolidate",
     "review_object",
+    "review_relationship",
 ]

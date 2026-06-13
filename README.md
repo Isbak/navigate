@@ -351,21 +351,25 @@ There is no RDF, no Jena, and no GraphRAG here.
 ### LLM provider abstraction
 
 The service depends only on `BaseLLMProvider`, so it is agnostic to the backend.
-Two providers ship today and new ones are a one-line registration plus a small
+Three providers ship today and new ones are a one-line registration plus a small
 subclass:
 
 - `OllamaProvider` — talks to a local Ollama server (fully offline).
+- `ClaudeProvider` — talks to Anthropic's Claude Messages API.
 - `OpenAIProvider` — talks to the OpenAI Chat Completions API.
 
-Both use only the standard library (no vendor SDK dependency). Configure the
+All providers use only the standard library (no vendor SDK dependency). Configure the
 active provider in `config/llm.yml`:
 
 ```yaml
-provider: ollama
+provider: claude
 
 ollama:
   model: qwen3:14b
   host: http://localhost:11434
+
+claude:
+  model: claude-sonnet-4-5  # ANTHROPIC_API_KEY is read from the environment
 
 openai:
   model: gpt-5.5            # OPENAI_API_KEY is read from the environment
@@ -625,6 +629,19 @@ with named graphs in a quad store.
 
 Fuseki connection details live in `config/jena.yml` (`fuseki.endpoint`,
 `fuseki.dataset`); a missing file falls back to `http://localhost:3030/knowledge-atlas`.
+
+
+### Local Fuseki with Docker
+
+A `docker-compose.yml` is included for local Apache Jena Fuseki development. It
+starts an update-enabled in-memory dataset at `http://localhost:3030/knowledge-atlas`,
+matching the default `config/jena.yml` endpoint.
+
+```bash
+docker compose up -d fuseki
+catalog rdf-export
+catalog fuseki-load
+```
 
 ### Example queries
 

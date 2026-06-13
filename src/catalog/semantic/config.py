@@ -16,8 +16,12 @@ import yaml
 
 DEFAULT_LLM_CONFIG_PATH = Path("config/llm.yml")
 
-DEFAULT_PROVIDER = "ollama"
-DEFAULT_MODELS = {"ollama": "qwen3:14b", "openai": "gpt-5.5"}
+DEFAULT_PROVIDER = "claude"
+DEFAULT_MODELS = {
+    "ollama": "qwen3:14b",
+    "openai": "gpt-5.5",
+    "claude": "claude-sonnet-4-5",
+}
 DEFAULT_MAX_INPUT_CHARS = 12000
 
 

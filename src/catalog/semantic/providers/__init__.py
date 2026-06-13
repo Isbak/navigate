@@ -12,6 +12,7 @@ from typing import Callable
 
 from ..config import LLMConfig
 from .base import BaseLLMProvider, LLMError
+from .claude_provider import ClaudeProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 
@@ -22,6 +23,17 @@ def _build_ollama(config: LLMConfig) -> BaseLLMProvider:
         config.model,
         host=opts.get("host", "http://localhost:11434"),
         timeout=int(opts.get("timeout", 120)),
+    )
+
+
+def _build_claude(config: LLMConfig) -> BaseLLMProvider:
+    opts = config.options
+    return ClaudeProvider(
+        config.model,
+        base_url=opts.get("base_url", "https://api.anthropic.com/v1"),
+        timeout=int(opts.get("timeout", 120)),
+        max_tokens=int(opts.get("max_tokens", 4096)),
+        anthropic_version=opts.get("anthropic_version", "2023-06-01"),
     )
 
 
@@ -37,6 +49,7 @@ def _build_openai(config: LLMConfig) -> BaseLLMProvider:
 # Registry of known providers. Adding a backend is a one-line change here plus a
 # BaseLLMProvider subclass - no edits to the service, prompts, or parser.
 _PROVIDERS: dict[str, Callable[[LLMConfig], BaseLLMProvider]] = {
+    "claude": _build_claude,
     "ollama": _build_ollama,
     "openai": _build_openai,
 }
@@ -65,6 +78,7 @@ def build_provider(config: LLMConfig) -> BaseLLMProvider:
 __all__ = [
     "BaseLLMProvider",
     "LLMError",
+    "ClaudeProvider",
     "OllamaProvider",
     "OpenAIProvider",
     "build_provider",

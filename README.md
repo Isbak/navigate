@@ -1018,6 +1018,25 @@ Long-running pipeline operations are exposed as **jobs**, tracked in SQLite
 (`id`, `job_type`, `status`, `started_at`, `completed_at`, `error_message`,
 `result_summary`) so a client can trigger them and poll for completion.
 
+### Running in Docker
+
+A `Dockerfile` and a `api` service in `docker-compose.yml` package the REST API:
+
+```bash
+docker compose up --build api      # build + run the API
+# API is now on http://127.0.0.1:8000/docs
+```
+
+The SQLite index and document cache persist in the `navigate-data` volume, and
+`config/` and `queries/` are mounted from the host so you can edit them without
+rebuilding. The optional Fuseki triplestore is a separate service
+(`docker compose up fuseki`).
+
+Inside the container the server binds to `0.0.0.0`, but compose publishes the
+port only to the host loopback (`127.0.0.1:8000:8000`), so the API stays
+local-first and is **not** exposed externally by default — change the published
+address yourself (and enable `require_api_key`) if you intend to share it.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without

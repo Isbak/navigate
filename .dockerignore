@@ -1,0 +1,31 @@
+# Keep the build context (and image) small and reproducible.
+.git
+.github
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Regenerable local state - never bake into the image.
+data/
+cache/
+exports/
+*.sqlite
+
+# Tests and tooling are not needed at runtime.
+tests/
+.env
+.env.*
+!.env.example
+
+# Python caches and build artifacts.
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/

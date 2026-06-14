@@ -1,4 +1,27 @@
 services:
+  api:
+    build: .
+    # Publish ONLY to the host loopback so the API is not exposed externally by
+    # default (local-first). Change the left-hand address to share it.
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      NAVIGATE_DB: /data/catalog.sqlite
+      NAVIGATE_CACHE: /data/cache
+    volumes:
+      # Persist the regenerable SQLite index and document cache.
+      - navigate-data:/data
+      # Live-editable configuration and query library (read-only in the container).
+      - ./config:/app/config:ro
+      - ./queries:/app/queries:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   fuseki:
     image: stain/jena-fuseki:latest
     command: ["--update", "--mem", "/knowledge-atlas"]
@@ -17,3 +40,4 @@ services:
 
 volumes:
   fuseki-data:
+  navigate-data:

@@ -227,3 +227,7 @@ cache/*
 
 # Link export output
 exports/
+
+# Local temporary and RDF output
+.tmp/
+rdf/

@@ -11,12 +11,18 @@ from __future__ import annotations
 import sqlite3
 from typing import Iterator
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..db import connect
 from .config import ApiSettings
 from .errors import unauthorized
 from .jobs_context import build_job_context  # re-exported for routes
+
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    description="Optional Bearer token used when require_api_key is enabled.",
+)
 
 __all__ = [
     "get_settings",
@@ -44,7 +50,8 @@ def get_db(request: Request) -> Iterator[sqlite3.Connection]:
 
 
 def require_api_key(
-    request: Request, settings: ApiSettings = Depends(get_settings)
+    settings: ApiSettings = Depends(get_settings),
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
 ) -> None:
     """Enforce ``Authorization: Bearer <token>`` when an API key is required.
 
@@ -61,7 +68,6 @@ def require_api_key(
             "API key authentication is enabled but no key is configured.",
             api_key_env=settings.api_key_env,
         )
-    header = request.headers.get("Authorization", "")
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or token.strip() != expected:
+    token = credentials.credentials.strip() if credentials else ""
+    if token != expected:
         raise unauthorized("Missing or invalid API key.")

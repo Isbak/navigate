@@ -939,6 +939,85 @@ Rules are configured in `config/governance.yml` (freshness thresholds, quality
 weights, drift sensitivity, the domain → owner map, and the ingestion cadence);
 every value falls back to a sensible default, so governance runs out of the box.
 
+## REST API
+
+The catalog is also exposed through a thin, local-first REST API (FastAPI +
+Pydantic over the existing services) so that `navigate-compass` or any other
+client can consume the knowledge platform. The API **does not replace the CLI**:
+both call the same service/repository layer, and the route handlers contain no
+business logic and no SQL.
+
+Run the server locally:
+
+```bash
+catalog api                              # or: navigate api
+catalog api --host 127.0.0.1 --port 8000 # explicit bind
+catalog api --no-reload                  # disable auto-reload
+```
+
+Then open the interactive docs:
+
+- Swagger UI: <http://127.0.0.1:8000/docs>
+- ReDoc: <http://127.0.0.1:8000/redoc>
+- OpenAPI schema: <http://127.0.0.1:8000/openapi.json>
+
+> The Python package is named `catalog`, so the server lives in
+> `catalog.api` and the command is `catalog api`. `navigate api` is provided as
+> an alias for the same entry point.
+
+### Principles
+
+- **local-first**: binds to `127.0.0.1` by default and is never exposed
+  externally unless you change `host` yourself.
+- **read-heavy with safe defaults**: no external calls happen unless explicitly
+  enabled (`enable_graphrag`, `enable_classify`).
+- **consistent contract**: every list endpoint paginates
+  (`{items, limit, offset, total}`) and every error has the same shape
+  (`{error, message, details}`).
+
+### Endpoints
+
+| Group | Endpoints |
+|-------|-----------|
+| Base | `GET /api/health`, `GET /api/stats` |
+| Artifacts | `GET /api/artifacts`, `GET /api/artifacts/{id}`, `.../links`, `.../evidence`, `POST .../rescan`, `.../extract`, `.../classify` |
+| Links | `GET /api/links`, `GET /api/links/stats`, `GET /api/links/top-targets` |
+| Knowledge | `GET /api/knowledge-objects`, `GET /api/knowledge-objects/{id}`, `.../relationships`, `.../evidence`, `.../mentions`, `POST .../approve`, `.../reject`, `.../archive` |
+| Relationships | `GET /api/relationships`, `GET /api/relationships/{id}`, `POST .../approve`, `.../reject` |
+| Evidence | `GET /api/evidence`, `GET /api/evidence/{id}` |
+| Governance | `GET /api/governance/{dashboard,review-queue,stale,orphaned,alerts,quality}` |
+| Graph | `GET /api/graph/{nodes,edges,export-json}`, `GET /api/graph/object/{id}/{neighbors,impact}`, `GET /api/graph/path?source=&target=&max_depth=` |
+| GraphRAG | `POST /api/ask` (501 until `enable_graphrag` is set) |
+| Jobs | `POST /api/jobs/{scan,extract,discover-links,classify,consolidate}`, `GET /api/jobs`, `GET /api/jobs/{id}` |
+
+### Configuration
+
+`config/api.yml` (all keys optional; safe defaults are used when the file is
+absent):
+
+```yaml
+host: "127.0.0.1"
+port: 8000
+reload: true
+cors_origins:
+  - "http://localhost:5173"
+require_api_key: false
+api_key_env: NAVIGATE_API_KEY
+enable_graphrag: false
+enable_classify: false
+```
+
+Set `require_api_key: true` and export the key to require
+`Authorization: Bearer <token>` on every `/api` request:
+
+```bash
+export NAVIGATE_API_KEY="my-secret"
+```
+
+Long-running pipeline operations are exposed as **jobs**, tracked in SQLite
+(`id`, `job_type`, `status`, `started_at`, `completed_at`, `error_message`,
+`result_summary`) so a client can trigger them and poll for completion.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without

@@ -64,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
+
+    api = sub.add_parser("api", help="run the local REST API server")
+    api.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    api.add_argument("--port", type=int, default=None, help="bind port (default 8000)")
+    api.add_argument("--reload", dest="reload", action="store_true", help="enable auto-reload")
+    api.add_argument("--no-reload", dest="reload", action="store_false", help="disable auto-reload")
+    api.add_argument("--api-config", default="config/api.yml")
+    api.set_defaults(reload=None)
+
     sub.add_parser("scan")
     sub.add_parser("watch")
     sub.add_parser("stats")
@@ -745,6 +754,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "init-db":
         init_db(args.db)
         print(f"Initialized {args.db}")
+    elif args.command == "api":
+        from .api.server import run as run_api
+
+        run_api(
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            config_path=args.api_config,
+            db_path=args.db,
+            cache_dir=args.cache,
+        )
     elif args.command == "scan":
         stats = scan(args.config, args.db, args.cache)
         _print_stats(stats.as_dict())

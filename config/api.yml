@@ -1,0 +1,32 @@
+# Configuration for the Navigate REST API (`catalog api` / `navigate api`).
+#
+# Local-first, safe defaults: binds to 127.0.0.1, no API key, and no external
+# calls. The API is never exposed externally unless you change `host` yourself.
+
+host: "127.0.0.1"
+port: 8000
+reload: true
+
+# CORS: local development origins only by default.
+cors_origins:
+  - "http://localhost:3000"
+  - "http://localhost:5173"
+  - "http://127.0.0.1:3000"
+  - "http://127.0.0.1:5173"
+
+# Optional API key. When enabled, every /api request must send
+# `Authorization: Bearer <token>` matching the value of the environment variable
+# named by `api_key_env`.
+require_api_key: false
+api_key_env: NAVIGATE_API_KEY
+
+# External-call gates (off by default - safe local-first behaviour):
+#   enable_graphrag  POST /api/ask uses an LLM provider; 501 until enabled.
+#   enable_classify  classify jobs call an LLM provider; fail until enabled.
+enable_graphrag: false
+enable_classify: false
+
+# Storage locations (shared with the CLI).
+db_path: "data/catalog.sqlite"
+cache_dir: "cache"
+queries_dir: "queries"

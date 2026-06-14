@@ -48,6 +48,7 @@ class StatsResponse(BaseModel):
     evidence_count: int
     pending_review_count: int
     stale_object_count: int
+    last_scan: Optional[dict[str, Any]] = None
 
 
 # -- artifacts ----------------------------------------------------------------

@@ -13,12 +13,47 @@ import pytest
 from fastapi.testclient import TestClient
 
 from catalog.api.app import create_app
-from catalog.api.config import ApiSettings
+from catalog.api.config import ApiSettings, load_api_config
 from catalog.db import connect, init_db
 from catalog.governance.config import load_governance_config
 from catalog.governance.service import run_scan
 from catalog.knowledge.models import ReviewState
 from catalog.knowledge.service import consolidate, review_object, review_relationship
+
+
+def test_load_api_config_resolves_storage_paths_from_repo_root(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    cfg_dir = repo / "config"
+    cfg_dir.mkdir(parents=True)
+    cfg = cfg_dir / "api.yml"
+    cfg.write_text(
+        "db_path: data/catalog.sqlite\n"
+        "cache_dir: cache\n"
+        "queries_dir: queries\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+
+    settings = load_api_config(cfg)
+
+    assert settings.db_path == str(repo / "data" / "catalog.sqlite")
+    assert settings.cache_dir == str(repo / "cache")
+    assert settings.queries_dir == str(repo / "queries")
+
+
+def test_load_api_config_env_db_override_is_absolute(tmp_path, monkeypatch):
+    cfg_dir = tmp_path / "repo" / "config"
+    cfg_dir.mkdir(parents=True)
+    cfg = cfg_dir / "api.yml"
+    cfg.write_text("db_path: data/catalog.sqlite\n", encoding="utf-8")
+    monkeypatch.setenv("NAVIGATE_DB", "override/catalog.sqlite")
+    monkeypatch.chdir(tmp_path)
+
+    settings = load_api_config(cfg)
+
+    assert settings.db_path == str(tmp_path / "repo" / "override" / "catalog.sqlite")
 
 
 def _seed_candidates(conn) -> None:

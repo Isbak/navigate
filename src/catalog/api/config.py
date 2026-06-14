@@ -69,12 +69,34 @@ def _coerce_origins(value: object) -> tuple[str, ...]:
     return DEFAULT_CORS_ORIGINS
 
 
+def _config_base_dir(path: Path) -> Path:
+    """Return the base directory for relative paths in an API config file.
+
+    Repository configs conventionally live in a ``config/`` directory while paths
+    such as ``data/catalog.sqlite`` are expressed relative to the repository
+    root. For configs elsewhere, resolve relative paths next to the config file.
+    """
+
+    parent = path.resolve().parent
+    return parent.parent if parent.name == "config" else parent
+
+
+def _resolve_path(value: object, default: str, base_dir: Path) -> str:
+    raw = str(value if value is not None else default)
+    expanded = Path(os.path.expandvars(os.path.expanduser(raw)))
+    if expanded.is_absolute():
+        return str(expanded)
+    return str((base_dir / expanded).resolve())
+
+
 def load_api_config(path: str | Path = DEFAULT_CONFIG_PATH) -> ApiSettings:
     """Load API settings, returning all-defaults if the file is absent."""
 
     data: dict = {}
     p = Path(path)
-    if p.exists():
+    config_exists = p.exists()
+    base_dir = _config_base_dir(p) if config_exists else Path.cwd()
+    if config_exists:
         loaded = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if isinstance(loaded, dict):
             data = loaded
@@ -95,14 +117,26 @@ def load_api_config(path: str | Path = DEFAULT_CONFIG_PATH) -> ApiSettings:
         api_key_env=str(merged.get("api_key_env", defaults.api_key_env)),
         enable_graphrag=bool(merged.get("enable_graphrag", defaults.enable_graphrag)),
         enable_classify=bool(merged.get("enable_classify", defaults.enable_classify)),
-        db_path=os.environ.get("NAVIGATE_DB") or str(merged.get("db_path", defaults.db_path)),
-        cache_dir=os.environ.get("NAVIGATE_CACHE") or str(merged.get("cache_dir", defaults.cache_dir)),
-        queries_dir=str(merged.get("queries_dir", defaults.queries_dir)),
-        sources_config=str(merged.get("sources_config", defaults.sources_config)),
-        link_config=str(merged.get("link_config", defaults.link_config)),
-        llm_config=str(merged.get("llm_config", defaults.llm_config)),
-        governance_config=str(merged.get("governance_config", defaults.governance_config)),
-        jena_config=str(merged.get("jena_config", defaults.jena_config)),
+        db_path=_resolve_path(
+            os.environ.get("NAVIGATE_DB") or merged.get("db_path"),
+            defaults.db_path,
+            base_dir,
+        ),
+        cache_dir=_resolve_path(
+            os.environ.get("NAVIGATE_CACHE") or merged.get("cache_dir"),
+            defaults.cache_dir,
+            base_dir,
+        ),
+        queries_dir=_resolve_path(merged.get("queries_dir"), defaults.queries_dir, base_dir),
+        sources_config=_resolve_path(
+            merged.get("sources_config"), defaults.sources_config, base_dir
+        ),
+        link_config=_resolve_path(merged.get("link_config"), defaults.link_config, base_dir),
+        llm_config=_resolve_path(merged.get("llm_config"), defaults.llm_config, base_dir),
+        governance_config=_resolve_path(
+            merged.get("governance_config"), defaults.governance_config, base_dir
+        ),
+        jena_config=_resolve_path(merged.get("jena_config"), defaults.jena_config, base_dir),
     )
     return settings
 
@@ -112,4 +146,5 @@ __all__ = [
     "load_api_config",
     "DEFAULT_CONFIG_PATH",
     "DEFAULT_CORS_ORIGINS",
+    "_resolve_path",
 ]

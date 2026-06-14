@@ -534,6 +534,8 @@ catalog consolidate --use-llm      # use the LLM for borderline merge suggestion
 
 catalog knowledge-stats            # top capabilities/concepts/technologies, most
                                    # connected/mentioned, conflicts, duplicates
+catalog knowledge-growth           # growth trend (new + cumulative) by month
+catalog knowledge-growth --interval week --limit 8
 catalog show-object capability_release_governance
 catalog search-knowledge "release"
 catalog review-candidates          # PROPOSED objects/relationships + duplicates
@@ -950,6 +952,11 @@ client can consume the knowledge platform. The API **does not replace the CLI**:
 both call the same service/repository layer, and the route handlers contain no
 business logic and no SQL.
 
+See [`docs/navigate-api.md`](docs/navigate-api.md) for the client-facing
+contract notes — including the domains resource, the knowledge-growth trend, the
+change-log feed, and the per-row child counts that clients such as
+`navigate-compass` consume.
+
 Run the server locally:
 
 ```bash
@@ -988,7 +995,7 @@ Then open the interactive docs:
 | Knowledge | `GET /api/knowledge-objects`, `GET /api/knowledge-objects/{id}`, `.../relationships`, `.../evidence`, `.../mentions`, `POST .../approve`, `.../reject`, `.../archive` |
 | Relationships | `GET /api/relationships`, `GET /api/relationships/{id}`, `POST .../approve`, `.../reject` |
 | Evidence | `GET /api/evidence`, `GET /api/evidence/{id}` |
-| Governance | `GET /api/governance/{dashboard,review-queue,stale,orphaned,alerts,quality}` |
+| Governance | `GET /api/governance/{dashboard,review-queue,stale,orphaned,alerts,quality}`, `GET /api/governance/domains`, `.../domains/{name}`, `GET /api/governance/changes`, `GET /api/governance/growth` |
 | Graph | `GET /api/graph/{nodes,edges,export-json}`, `GET /api/graph/object/{id}/{neighbors,impact}`, `GET /api/graph/path?source=&target=&max_depth=` |
 | GraphRAG | `POST /api/ask` (501 until `enable_graphrag` is set) |
 | Jobs | `POST /api/jobs/{scan,extract,discover-links,classify,consolidate}`, `GET /api/jobs`, `GET /api/jobs/{id}` |

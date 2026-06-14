@@ -460,6 +460,38 @@ def all_changes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def change_feed(
+    conn: sqlite3.Connection,
+    *,
+    object_id: str | None = None,
+    change_type: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[sqlite3.Row], int]:
+    """Filtered, paginated change-log feed (newest first) with a total count."""
+
+    where: list[str] = []
+    params: list[object] = []
+    if object_id:
+        where.append("object_id = ?")
+        params.append(object_id)
+    if change_type:
+        where.append("change_type = ?")
+        params.append(change_type)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+
+    total = int(
+        conn.execute(
+            f"SELECT COUNT(*) FROM knowledge_change_log{clause}", params
+        ).fetchone()[0]
+    )
+    rows = conn.execute(
+        f"SELECT * FROM knowledge_change_log{clause} ORDER BY id DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
+    return rows, total
+
+
 def known_relationship_triples(conn: sqlite3.Connection) -> set[tuple[str, str, str]]:
     """Replay the change log to reconstruct the last-known set of relationships.
 
@@ -516,5 +548,6 @@ __all__ = [
     "changes_for_object",
     "recent_changes",
     "all_changes",
+    "change_feed",
     "known_relationship_triples",
 ]

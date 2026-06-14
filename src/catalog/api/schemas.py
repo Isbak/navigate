@@ -120,6 +120,11 @@ class KnowledgeObject(BaseModel):
     freshness_state: Optional[str] = None
     quality_score: Optional[float] = None
     owner: Optional[str] = None
+    # Per-row child counts, so a list/table view can show badges without an
+    # N+1 fan-out to the relationships / evidence / mentions sub-resources.
+    relationship_count: Optional[int] = None
+    evidence_count: Optional[int] = None
+    mention_count: Optional[int] = None
 
 
 class Relationship(BaseModel):
@@ -197,6 +202,52 @@ class QualityItem(BaseModel):
 class QualityResponse(BaseModel):
     average_quality: float
     items: list[QualityItem]
+
+
+class DomainHealth(BaseModel):
+    """A knowledge domain (business area) and its governance health."""
+
+    domain: str
+    owner: Optional[str] = None
+    object_count: int
+    avg_quality: float
+    avg_freshness: float
+    review_backlog: int
+
+
+class ChangeLogEntry(BaseModel):
+    """One entry from the governance change-log (audit) feed."""
+
+    id: int
+    change_type: str
+    target_kind: Optional[str] = None
+    object_id: Optional[str] = None
+    field: Optional[str] = None
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    detail: Optional[str] = None
+    detected_at: Optional[str] = None
+
+
+class GrowthPoint(BaseModel):
+    """Counts for a single period of the knowledge-growth trend.
+
+    ``*_added`` is new in the period; ``*_total`` is the cumulative count up to
+    and including the period.
+    """
+
+    period: str
+    artifacts_added: int
+    artifacts_total: int
+    objects_added: int
+    objects_total: int
+    relationships_added: int
+    relationships_total: int
+
+
+class GrowthTrend(BaseModel):
+    interval: str
+    points: list[GrowthPoint]
 
 
 # -- graph --------------------------------------------------------------------
@@ -321,6 +372,10 @@ __all__ = [
     "StaleItem",
     "QualityItem",
     "QualityResponse",
+    "DomainHealth",
+    "ChangeLogEntry",
+    "GrowthPoint",
+    "GrowthTrend",
     "GraphNode",
     "GraphEdge",
     "GraphNeighbor",

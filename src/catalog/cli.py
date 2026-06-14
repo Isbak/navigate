@@ -115,6 +115,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("knowledge-stats")
 
+    growth = sub.add_parser(
+        "knowledge-growth", help="knowledge-growth trend over time"
+    )
+    growth.add_argument(
+        "--interval", choices=("day", "week", "month"), default="month"
+    )
+    growth.add_argument("--limit", type=int, default=12)
+
     show_obj = sub.add_parser("show-object")
     show_obj.add_argument("object_id")
 
@@ -564,6 +572,26 @@ def _cmd_knowledge_stats(args) -> None:
             )
 
 
+def _cmd_knowledge_growth(args) -> None:
+    init_db(args.db)
+    with connect(args.db) as conn:
+        trend = know_analytics.growth_trend(
+            conn, interval=args.interval, limit=args.limit
+        )
+    print(f"Knowledge growth (by {trend['interval']}):")
+    if not trend["points"]:
+        print("  (no dated knowledge yet - run: catalog consolidate)")
+        return
+    for p in trend["points"]:
+        print(
+            f"  {p['period']}  "
+            f"objects +{_fmt(p['objects_added'])} (total {_fmt(p['objects_total'])})  "
+            f"relationships +{_fmt(p['relationships_added'])} "
+            f"(total {_fmt(p['relationships_total'])})  "
+            f"artifacts +{_fmt(p['artifacts_added'])} (total {_fmt(p['artifacts_total'])})"
+        )
+
+
 def _cmd_show_object(args) -> None:
     init_db(args.db)
     with connect(args.db) as conn:
@@ -804,6 +832,8 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_consolidate(args)
     elif args.command == "knowledge-stats":
         _cmd_knowledge_stats(args)
+    elif args.command == "knowledge-growth":
+        _cmd_knowledge_growth(args)
     elif args.command == "show-object":
         _cmd_show_object(args)
     elif args.command == "search-knowledge":

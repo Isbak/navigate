@@ -151,6 +151,70 @@ def conflicting_evidence(conn: sqlite3.Connection, limit: int = 20) -> list[dict
     ]
 
 
+# Period bucketing for the growth trend, expressed as SQLite strftime formats.
+_GROWTH_INTERVALS = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}
+
+# Each growth series: (table, timestamp column, optional extra WHERE clause).
+_GROWTH_SERIES = (
+    ("artifacts", "artifacts", "first_seen_at", "scan_status != 'DELETED'"),
+    ("objects", "knowledge_objects", "created_at", None),
+    ("relationships", "knowledge_relationships", "created_at", None),
+)
+
+
+def growth_trend(
+    conn: sqlite3.Connection, *, interval: str = "month", limit: int = 12
+) -> dict:
+    """Knowledge-growth trend: per-period new and cumulative counts.
+
+    Buckets artifacts, knowledge objects, and relationships by their creation
+    timestamp into ``day`` / ``week`` / ``month`` periods, and reports both the
+    count added in each period and the running cumulative total. The cumulative
+    totals are computed over the full history first, then the most recent
+    ``limit`` periods are returned, so the totals stay correct under windowing.
+    Rows whose timestamp is missing or unparseable contribute to no period.
+    """
+
+    fmt = _GROWTH_INTERVALS.get(interval)
+    if fmt is None:
+        raise ValueError(
+            f"interval must be one of {sorted(_GROWTH_INTERVALS)}, got {interval!r}"
+        )
+
+    added: dict[str, dict[str, int]] = {name: {} for name, *_ in _GROWTH_SERIES}
+    periods: set[str] = set()
+    for name, table, column, where in _GROWTH_SERIES:
+        clause = f" WHERE {where}" if where else ""
+        rows = conn.execute(
+            f"SELECT strftime(?, {column}) AS period, COUNT(*) AS n "
+            f"FROM {table}{clause} GROUP BY period",
+            (fmt,),
+        ).fetchall()
+        for r in rows:
+            if r["period"] is None:
+                continue
+            added[name][r["period"]] = r["n"]
+            periods.add(r["period"])
+
+    totals = {name: 0 for name, *_ in _GROWTH_SERIES}
+    points: list[dict] = []
+    for period in sorted(periods):
+        for name in totals:
+            totals[name] += added[name].get(period, 0)
+        points.append(
+            {
+                "period": period,
+                "artifacts_added": added["artifacts"].get(period, 0),
+                "artifacts_total": totals["artifacts"],
+                "objects_added": added["objects"].get(period, 0),
+                "objects_total": totals["objects"],
+                "relationships_added": added["relationships"].get(period, 0),
+                "relationships_total": totals["relationships"],
+            }
+        )
+    return {"interval": interval, "points": points[-limit:] if limit > 0 else points}
+
+
 def duplicate_candidates(
     conn: sqlite3.Connection,
     config: ResolutionConfig | None = None,
@@ -172,5 +236,6 @@ __all__ = [
     "most_mentioned",
     "most_connected",
     "conflicting_evidence",
+    "growth_trend",
     "duplicate_candidates",
 ]

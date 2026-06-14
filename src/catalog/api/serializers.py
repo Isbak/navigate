@@ -78,6 +78,9 @@ def knowledge_object(row: Any) -> schemas.KnowledgeObject:
         freshness_state=_get(row, "freshness_state"),
         quality_score=_get(row, "quality_score"),
         owner=owner,
+        relationship_count=_get(row, "relationship_count"),
+        evidence_count=_get(row, "evidence_count"),
+        mention_count=_get(row, "mention_count"),
     )
 
 
@@ -143,6 +146,31 @@ def alert(row: Any) -> schemas.GovernanceAlert:
     )
 
 
+def domain_health(item: dict) -> schemas.DomainHealth:
+    return schemas.DomainHealth(
+        domain=item["domain"],
+        owner=item.get("owner") or None,
+        object_count=item["object_count"],
+        avg_quality=item["avg_quality"],
+        avg_freshness=item["avg_freshness"],
+        review_backlog=item["review_backlog"],
+    )
+
+
+def change_entry(row: Any) -> schemas.ChangeLogEntry:
+    return schemas.ChangeLogEntry(
+        id=row["id"],
+        change_type=row["change_type"],
+        target_kind=_get(row, "target_kind"),
+        object_id=_get(row, "object_id"),
+        field=_get(row, "field"),
+        old_value=_get(row, "old_value"),
+        new_value=_get(row, "new_value"),
+        detail=_get(row, "detail"),
+        detected_at=_get(row, "detected_at"),
+    )
+
+
 def graph_node(item: dict) -> schemas.GraphNode:
     return schemas.GraphNode(
         id=item["id"],
@@ -193,6 +221,8 @@ __all__ = [
     "mention",
     "evidence",
     "alert",
+    "domain_health",
+    "change_entry",
     "graph_node",
     "graph_edge",
     "job",

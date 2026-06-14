@@ -237,18 +237,32 @@ def list_knowledge_objects(
     rows = conn.execute(
         "SELECT o.*, l.review_state AS review_state, l.freshness_state AS freshness_state, "
         "q.quality_score AS quality_score, "
-        "w.owner_type AS owner_type, w.owner_id AS owner_id "
+        "w.owner_type AS owner_type, w.owner_id AS owner_id, "
+        f"{_OBJECT_COUNT_COLUMNS} "
         f"{base}{clause} ORDER BY o.confidence DESC, o.canonical_name LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
     return rows, total
 
 
+# Per-object child counts, computed inline so a list row can carry badge counts
+# without the client fanning out to the relationship/evidence/mention endpoints.
+_OBJECT_COUNT_COLUMNS = (
+    "(SELECT COUNT(*) FROM knowledge_relationships r "
+    "  WHERE r.source_object = o.id OR r.target_object = o.id) AS relationship_count, "
+    "(SELECT COUNT(*) FROM knowledge_evidence e "
+    "  WHERE e.knowledge_object_id = o.id) AS evidence_count, "
+    "(SELECT COUNT(*) FROM knowledge_mentions km "
+    "  WHERE km.knowledge_object_id = o.id) AS mention_count"
+)
+
+
 def get_knowledge_object(conn: sqlite3.Connection, object_id: str) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT o.*, l.review_state AS review_state, l.freshness_state AS freshness_state, "
         "q.quality_score AS quality_score, "
-        "w.owner_type AS owner_type, w.owner_id AS owner_id "
+        "w.owner_type AS owner_type, w.owner_id AS owner_id, "
+        f"{_OBJECT_COUNT_COLUMNS} "
         "FROM knowledge_objects o "
         "LEFT JOIN knowledge_lifecycle l ON l.object_id = o.id "
         "LEFT JOIN knowledge_quality q ON q.object_id = o.id "

@@ -371,6 +371,60 @@ def test_governance_quality_and_orphaned(client):
     assert "objects_without_owner" in orphaned
 
 
+def test_governance_domains_list_and_detail(client):
+    domains = client.get("/api/governance/domains").json()
+    # Every configured domain is represented, even with zero objects.
+    by_name = {d["domain"]: d for d in domains}
+    assert "Test & Release" in by_name
+    # doc_a is classified into "Test & Release" and is mentioned by an object,
+    # so the domain has coverage.
+    assert by_name["Test & Release"]["object_count"] >= 1
+    assert "owner" in by_name["Test & Release"]
+
+    detail = client.get("/api/governance/domains/Test & Release").json()
+    assert detail["domain"] == "Test & Release"
+
+    missing = client.get("/api/governance/domains/Nonexistent Domain")
+    assert missing.status_code == 404
+    assert missing.json()["error"] == "not_found"
+
+
+def test_governance_changes_feed(client):
+    body = client.get("/api/governance/changes").json()
+    # The seeded governance scan logged at least one object-added change.
+    assert body["total"] >= 1
+    assert all("change_type" in c for c in body["items"])
+
+    filtered = client.get(
+        "/api/governance/changes", params={"change_type": "object_added"}
+    ).json()
+    assert filtered["total"] >= 1
+    assert all(c["change_type"] == "object_added" for c in filtered["items"])
+
+
+def test_governance_growth_trend(client):
+    body = client.get("/api/governance/growth").json()
+    assert body["interval"] == "month"
+    assert body["points"], "consolidation timestamps the objects, so there is a point"
+    last = body["points"][-1]
+    assert last["objects_total"] >= 1
+    assert last["relationships_total"] >= 1
+
+    invalid = client.get("/api/governance/growth", params={"interval": "decade"})
+    assert invalid.status_code == 422
+
+
+def test_knowledge_objects_include_per_row_counts(client):
+    body = client.get("/api/knowledge-objects").json()
+    for obj in body["items"]:
+        # Counts are present (not None) on every list row, no fan-out needed.
+        assert obj["relationship_count"] is not None
+        assert obj["evidence_count"] is not None
+        assert obj["mention_count"] is not None
+    # The most-connected object (Release Governance) has relationships.
+    assert any(obj["relationship_count"] >= 1 for obj in body["items"])
+
+
 # -- graph --------------------------------------------------------------------
 
 def test_graph_nodes_and_edges(client):

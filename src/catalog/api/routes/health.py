@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 from fastapi import APIRouter, Depends
 
+from ...db import latest_scan_run
 from ...links import repository as link_repo
 from ...knowledge import repository as know_repo
 from ..dependencies import get_db, get_settings
@@ -61,6 +62,7 @@ def stats(conn: sqlite3.Connection = Depends(get_db)) -> StatsResponse:
             "WHERE freshness_state IN ('STALE', 'ARCHIVED')"
         ).fetchone()[0]
     )
+    run = latest_scan_run(conn)
     return StatsResponse(
         artifact_count=artifact_count,
         link_count=link_repo.count_links(conn),
@@ -69,4 +71,5 @@ def stats(conn: sqlite3.Connection = Depends(get_db)) -> StatsResponse:
         evidence_count=know_repo.count_table(conn, "knowledge_evidence"),
         pending_review_count=pending,
         stale_object_count=stale,
+        last_scan=dict(run) if run is not None else None,
     )

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from catalog.api.app import create_app
 from catalog.api.config import ApiSettings, load_api_config
-from catalog.db import connect, init_db
+from catalog.db import connect, init_db, record_scan_run
 from catalog.governance.config import load_governance_config
 from catalog.governance.service import run_scan
 from catalog.knowledge.models import ReviewState
@@ -207,8 +207,33 @@ def test_stats(client):
     assert body["knowledge_object_count"] >= 1
     assert body["relationship_count"] >= 1
     assert body["evidence_count"] >= 1
+    assert body["last_scan"] is None
     for key in ("pending_review_count", "stale_object_count"):
         assert key in body
+
+
+def test_stats_includes_latest_local_scan_run(client, seeded_db):
+    with connect(seeded_db) as conn:
+        record_scan_run(
+            conn,
+            "2026-01-01T00:00:00+00:00",
+            "2026-01-01T00:00:05+00:00",
+            {
+                "files_scanned": 3,
+                "new_files": 1,
+                "changed_files": 1,
+                "unchanged_files": 1,
+                "duplicate_files": 0,
+                "deleted_files": 0,
+            },
+        )
+
+    body = client.get("/api/stats").json()
+
+    assert body["last_scan"]["finished_at"] == "2026-01-01T00:00:05+00:00"
+    assert body["last_scan"]["files_scanned"] == 3
+    assert body["last_scan"]["new_files"] == 1
+    assert body["last_scan"]["changed_files"] == 1
 
 
 # -- artifacts ----------------------------------------------------------------

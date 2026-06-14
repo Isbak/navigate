@@ -1032,9 +1032,10 @@ docker compose up --build api      # build + run the API
 # API is now on http://127.0.0.1:8000/docs
 ```
 
-The SQLite index and document cache persist in the `navigate-data` volume, and
-`config/` and `queries/` are mounted from the host so you can edit them without
-rebuilding. The optional Fuseki triplestore is a separate service
+The SQLite index and document cache are shared with the host via the local
+`data/` and `cache/` directories, so Docker and local CLI commands see the same
+data. `config/` and `queries/` are mounted from the host so you can edit them
+without rebuilding. The optional Fuseki triplestore is a separate service
 (`docker compose up fuseki`).
 
 Inside the container the server binds to `0.0.0.0`, but compose publishes the

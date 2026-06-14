@@ -46,6 +46,7 @@ def _classify(tmp_path, monkeypatch):
 def test_classify_command(tmp_path, monkeypatch, capsys):
     _classify(tmp_path, monkeypatch)
     out = capsys.readouterr().out
+    assert "Classification progress: 100% complete (1/1) doc_gov" in out
     assert "Documents processed: 1" in out
     assert "Governance" in out
 

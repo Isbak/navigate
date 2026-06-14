@@ -24,6 +24,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from ..db import connect, init_db
 from . import repository as repo
@@ -150,12 +151,14 @@ def classify_documents(
     artifact_id: str | None = None,
     force: bool = False,
     max_input_chars: int = 12000,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> ClassifyStats:
     """Classify cached documents with ``provider`` and persist the results.
 
     Processes a single artifact when ``artifact_id`` is given, otherwise every
     ``cache/*/extracted.txt``. Returns aggregate stats and records a row in
-    ``classification_runs``.
+    ``classification_runs``. When provided, ``progress_callback`` is called after
+    each artifact is handled with ``(completed, total, artifact_id)``.
     """
 
     cache_path = Path(cache_dir)
@@ -166,7 +169,8 @@ def classify_documents(
     artifact_dirs = _artifact_dirs(cache_path, artifact_id)
 
     with connect(db_path) as conn:
-        for artifact_dir in artifact_dirs:
+        total_artifacts = len(artifact_dirs)
+        for index, artifact_dir in enumerate(artifact_dirs, start=1):
             try:
                 _classify_one(
                     conn,
@@ -186,6 +190,9 @@ def classify_documents(
                 LOGGER.exception("Unexpected classification error for %s", artifact_dir)
                 stats.errors += 1
                 conn.rollback()
+            finally:
+                if progress_callback is not None:
+                    progress_callback(index, total_artifacts, artifact_dir.name)
 
         completed_at = _utc_now()
         repo.record_classification_run(

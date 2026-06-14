@@ -327,6 +327,14 @@ def _cmd_classify(args) -> None:
         print(f"Error: {exc}")
         return
     print(f"Classifying with {config.provider} model {provider.model} ...")
+
+    def _show_progress(completed: int, total: int, artifact_id: str) -> None:
+        percent = round((completed / total) * 100) if total else 100
+        print(
+            f"Classification progress: {percent}% complete "
+            f"({completed}/{total}) {artifact_id}"
+        )
+
     stats = classify_documents(
         db_path=args.db,
         cache_dir=args.cache,
@@ -334,6 +342,7 @@ def _cmd_classify(args) -> None:
         artifact_id=args.artifact_id,
         force=args.force,
         max_input_chars=config.max_input_chars,
+        progress_callback=_show_progress,
     )
     print("Classification complete:")
     print(f"Documents processed: {_fmt(stats.documents_processed)}")

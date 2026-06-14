@@ -51,7 +51,9 @@ def list_objects(
         offset=page.offset,
     )
     items = [serializers.knowledge_object(r) for r in rows]
-    return PaginatedResponse(items=items, limit=page.limit, offset=page.offset, total=total)
+    return PaginatedResponse(
+        items=items, limit=page.limit, offset=page.offset, total=total
+    )
 
 
 @router.get("/{object_id}", response_model=KnowledgeObject)
@@ -64,7 +66,9 @@ def get_object(
     return serializers.knowledge_object(row)
 
 
-@router.get("/{object_id}/relationships", response_model=PaginatedResponse[Relationship])
+@router.get(
+    "/{object_id}/relationships", response_model=PaginatedResponse[Relationship]
+)
 def object_relationships(
     object_id: str, conn: sqlite3.Connection = Depends(get_db)
 ) -> PaginatedResponse[Relationship]:
@@ -97,7 +101,6 @@ def object_mentions(
 @router.post("/{object_id}/approve", response_model=ActionResponse)
 def approve_object(
     object_id: str,
-    conn: sqlite3.Connection = Depends(get_db),
     settings: ApiSettings = Depends(get_settings),
 ) -> ActionResponse:
     return _review(settings, object_id, gov_service.approve_object, "APPROVED")
@@ -106,7 +109,6 @@ def approve_object(
 @router.post("/{object_id}/reject", response_model=ActionResponse)
 def reject_object(
     object_id: str,
-    conn: sqlite3.Connection = Depends(get_db),
     settings: ApiSettings = Depends(get_settings),
 ) -> ActionResponse:
     return _review(settings, object_id, gov_service.reject_object, "REJECTED")
@@ -115,7 +117,6 @@ def reject_object(
 @router.post("/{object_id}/archive", response_model=ActionResponse)
 def archive_object(
     object_id: str,
-    conn: sqlite3.Connection = Depends(get_db),
     settings: ApiSettings = Depends(get_settings),
 ) -> ActionResponse:
     return _review(settings, object_id, gov_service.archive_object, "ARCHIVED")

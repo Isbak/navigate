@@ -32,6 +32,7 @@ class ReviewState(str, Enum):
     REVIEWED = "REVIEWED"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+    ARCHIVED = "ARCHIVED"
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic
         return self.value

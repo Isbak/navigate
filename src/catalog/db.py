@@ -336,6 +336,26 @@ CREATE TABLE IF NOT EXISTS knowledge_change_log(
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_change_log_object ON knowledge_change_log(object_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_change_log_type ON knowledge_change_log(change_type);
+-- ---------------------------------------------------------------------------
+-- API job tracking (REST API layer).
+--
+-- The REST API can trigger the long-running pipeline operations (scan, extract,
+-- discover-links, classify, consolidate) on demand. Each invocation is recorded
+-- here so a client can poll its status and read a result summary afterwards. The
+-- table is independent of the regenerable knowledge tables and is never dropped
+-- by the rebuild logic above, so the job history survives a re-scan.
+CREATE TABLE IF NOT EXISTS jobs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  started_at TEXT,
+  completed_at TEXT,
+  error_message TEXT,
+  result_summary TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_type ON jobs(job_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 """
 
 # Columns expected on a current ``artifacts`` table; a mismatch triggers a

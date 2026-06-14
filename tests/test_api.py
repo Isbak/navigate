@@ -132,6 +132,25 @@ def client(seeded_db, tmp_path) -> TestClient:
     return TestClient(create_app(_settings(seeded_db, tmp_path)))
 
 
+# -- Swagger / OpenAPI ---------------------------------------------------------
+
+def test_swagger_docs_and_openapi_schema(client):
+    docs = client.get("/docs")
+    assert docs.status_code == 200
+    assert "Swagger UI" in docs.text
+
+    schema = client.get("/openapi.json").json()
+    assert schema["info"]["title"] == "Navigate API"
+    assert schema["openapi"].startswith("3.")
+    assert {tag["name"] for tag in schema["tags"]} >= {
+        "artifacts",
+        "knowledge",
+        "jobs",
+    }
+    assert "/api/artifacts" in schema["paths"]
+    assert "HTTPBearer" in schema["components"]["securitySchemes"]
+
+
 # -- health & stats -----------------------------------------------------------
 
 def test_health(client):

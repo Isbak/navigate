@@ -20,8 +20,9 @@ ollama:
 
 claude:
   model: claude-sonnet-4-5
-  # The API key is read from the ANTHROPIC_API_KEY environment variable, never
-  # stored in this file.
+  # The API key value is read from the named environment variable (or .env),
+  # never stored in this file.
+  api_key_env: ANTHROPIC_API_KEY
   base_url: https://api.anthropic.com/v1
   anthropic_version: "2023-06-01"
   max_tokens: 4096
@@ -29,8 +30,9 @@ claude:
 
 openai:
   model: gpt-5.5
-  # The API key is read from the OPENAI_API_KEY environment variable, never
-  # stored in this file.
+  # The API key value is read from the named environment variable (or .env),
+  # never stored in this file.
+  api_key_env: OPENAI_API_KEY
   base_url: https://api.openai.com/v1
   timeout: 120
 

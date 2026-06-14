@@ -56,6 +56,28 @@ def test_load_api_config_env_db_override_is_absolute(tmp_path, monkeypatch):
     assert settings.db_path == str(tmp_path / "repo" / "override" / "catalog.sqlite")
 
 
+def test_load_api_config_reads_dotenv_without_overriding_environment(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    cfg_dir = repo / "config"
+    cfg_dir.mkdir(parents=True)
+    (repo / ".env").write_text(
+        "NAVIGATE_DB=from-dotenv.sqlite\n"
+        "NAVIGATE_CACHE=from-dotenv-cache\n"
+        "NAVIGATE_API_KEY=dotenv-token\n",
+        encoding="utf-8",
+    )
+    cfg = cfg_dir / "api.yml"
+    cfg.write_text("require_api_key: true\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("NAVIGATE_CACHE", "process-cache")
+
+    settings = load_api_config(cfg)
+
+    assert settings.db_path == str(repo / "from-dotenv.sqlite")
+    assert settings.cache_dir == str(repo / "process-cache")
+    assert settings.api_key == "dotenv-token"
+
+
 def _seed_candidates(conn) -> None:
     def capability(artifact, name, confidence, text):
         conn.execute(

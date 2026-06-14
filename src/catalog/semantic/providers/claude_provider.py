@@ -12,6 +12,8 @@ import logging
 import os
 from urllib import error, request
 
+from catalog.env import load_dotenv
+
 from .base import BaseLLMProvider, LLMError
 
 LOGGER = logging.getLogger(__name__)
@@ -35,18 +37,21 @@ class ClaudeProvider(BaseLLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         anthropic_version: str = DEFAULT_ANTHROPIC_VERSION,
         api_key: str | None = None,
+        api_key_env: str = API_KEY_ENV,
     ) -> None:
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_tokens = max_tokens
         self.anthropic_version = anthropic_version
-        self._api_key = api_key or os.environ.get(API_KEY_ENV)
+        load_dotenv()
+        self.api_key_env = api_key_env
+        self._api_key = api_key or os.environ.get(api_key_env)
 
     def generate(self, prompt: str, *, system: str | None = None) -> str:
         if not self._api_key:
             raise LLMError(
-                f"Anthropic API key not set; export {API_KEY_ENV} or pass api_key"
+                f"Anthropic API key not set; export {self.api_key_env} or pass api_key"
             )
 
         payload: dict = {

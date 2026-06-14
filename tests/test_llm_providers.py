@@ -156,3 +156,18 @@ def test_openai_without_key_raises():
     provider = OpenAIProvider("gpt-5.5", api_key="")
     with pytest.raises(LLMError):
         provider.generate("hi")
+
+
+def test_provider_api_key_env_can_be_configured(monkeypatch):
+    monkeypatch.setenv("CUSTOM_OPENAI_KEY", "custom-secret")
+    cfg = LLMConfig(
+        provider="openai",
+        model="gpt-5.5",
+        options={"api_key_env": "CUSTOM_OPENAI_KEY"},
+    )
+
+    provider = build_provider(cfg)
+
+    assert isinstance(provider, OpenAIProvider)
+    assert provider.api_key_env == "CUSTOM_OPENAI_KEY"
+    assert provider._api_key == "custom-secret"

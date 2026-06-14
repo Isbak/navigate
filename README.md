@@ -816,6 +816,129 @@ Every answered question logs (at `-v`) its reasoning type, the counts of objects
 relationships, and evidence retrieved, the prompt size, the response time, and
 the resulting confidence band.
 
+## Knowledge governance and continuous operations
+
+The `catalog.governance` package turns the consolidated graph from a periodically
+rebuilt artifact into a **continuously governed knowledge platform**. Its single
+goal is trust: every object, relationship, and piece of evidence carries an
+origin, an owner, a review state, and a freshness state, so the graph stays
+current, traceable, reviewable, explainable, and maintainable.
+
+It adds no retrieval, GraphRAG, vector, or agent features — it is pure governance
+over the SQLite system of record.
+
+### What governance tracks
+
+Six tables hold curated governance state. Crucially they reference object ids
+*softly* (by value, not by an enforced foreign key), so they **survive a
+`consolidate`** — which deletes and recreates `knowledge_objects` — and the
+ownership, review decisions, and freshness history are never lost.
+
+| Table | Purpose |
+| --- | --- |
+| `knowledge_owners` | who owns each object (Team / Person / Domain) |
+| `knowledge_lifecycle` | freshness + review-workflow state, `last_seen_at`, history |
+| `knowledge_quality` | the latest 0–100 quality score and its factors |
+| `knowledge_alerts` | generated operator alerts |
+| `knowledge_change_log` | the append-only audit trail |
+| `knowledge_reviews` | the human review-action audit trail (reused) |
+
+### The freshness lifecycle
+
+Freshness answers "is this still current?" from how long it has been since fresh
+evidence was last seen for an object. The rules are configurable
+(`config/governance.yml`):
+
+```
+seen recently            -> FRESH
+no evidence for 180 days -> AGING
+no evidence for 365 days -> STALE
+archived by a reviewer   -> ARCHIVED
+```
+
+A continuous `freshness_score` decays linearly from 1.0 (seen today) to 0.0 at
+the archive horizon, feeding the quality score.
+
+### Quality scoring
+
+Every object gets a 0–100 quality score blending six factors: evidence count,
+review status, freshness, relationship consistency, whether an owner is assigned,
+and confidence. It is the single number that answers "how much should I trust
+this?" — the worked example being a well-owned, approved *Release Governance*
+(92) outranking a pending, unowned *Launchpad Model* (71).
+
+### Change detection, drift, and evolution
+
+Each scan diffs the current graph against the previous one and appends to the
+audit trail: new/removed objects, new/removed relationships, confidence changes,
+ownership changes, and freshness transitions. **Drift detection** flags
+disappearing evidence, established objects vanishing, and terminology changes
+(e.g. *Launchpad Model* in 30 documents being replaced by *Mission Delivery
+Model*). `catalog governance history <object>` then answers, for any object, why
+it exists, what evidence supports it, who approved it, when it was reviewed, and
+what changed.
+
+### Review workflow, alerts, and orphans
+
+Objects move through a review workflow — `PENDING_REVIEW`, `NEEDS_ATTENTION`,
+`APPROVED`, `ARCHIVED`, `REJECTED`. Approving an object also pins its
+consolidation status so it flows into the RDF projection; rejecting/archiving
+removes it. Each scan regenerates alerts for stale knowledge, stale reviews,
+orphaned objects, missing owners, conflicting evidence, duplicate objects and
+relationships, quality degradation, and drift. Orphan detection finds objects
+without evidence/relationships/owners, relationships without evidence, and
+evidence without an object.
+
+### Domain governance
+
+Objects are mapped to business domains (Digital Transformation, Architecture,
+Leadership, Test & Release, Data, Operations) through their documents'
+classifications. Each domain reports an owner, object count, average quality,
+average freshness, and review backlog.
+
+### Automated ingestion
+
+`catalog governance ingest` runs the whole pipeline on a cadence
+(`daily` / `weekly` / `manual`):
+
+```
+scan -> extract -> discover-links -> consolidate -> rdf-export -> governance scan
+```
+
+A last-run marker drives the schedule; `--force` runs regardless, and a failing
+step is recorded without aborting the cadence.
+
+### Commands
+
+```bash
+catalog governance scan                 # refresh lifecycle, detect change/drift, score, alert
+catalog governance dashboard            # knowledge health at a glance
+catalog governance review-queue         # objects awaiting review
+catalog governance stale                # stale / aging knowledge
+catalog governance quality              # quality scores (--ascending for worst first)
+catalog governance orphaned             # orphan detection
+catalog governance alerts               # open alerts (--type to filter)
+catalog governance drift                # detected knowledge drift
+catalog governance changes              # recent audit-trail entries
+
+catalog governance history <object>     # full provenance + change history of one object
+catalog governance approve <object>     # trusted, exported to RDF
+catalog governance archive <object>     # retired, kept for history
+catalog governance reject <object>      # not trusted, excluded
+catalog governance flag <object>        # mark as needing attention
+catalog governance assign-owner <object> <Team|Person|Domain> "<owner>"
+catalog governance owners               # ownership assignments
+catalog governance domains              # per-domain governance health
+
+catalog governance export               # quality_report.json, governance_report.json,
+                                        #   knowledge_health.json, change_log.json
+catalog governance ingest [--schedule daily|weekly|manual] [--force]
+```
+
+Rules are configured in `config/governance.yml` (freshness thresholds, quality
+weights, drift sensitivity, the domain → owner map, and the ingestion cadence);
+every value falls back to a sensible default, so governance runs out of the box.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without

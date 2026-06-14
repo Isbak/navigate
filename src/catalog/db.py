@@ -259,6 +259,83 @@ CREATE TABLE IF NOT EXISTS knowledge_reviews(
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_reviews_target ON knowledge_reviews(target_id);
+-- ---------------------------------------------------------------------------
+-- Knowledge governance layer (Prompt #10).
+--
+-- These tables turn the consolidated graph into a *governed* knowledge system:
+-- ownership, a freshness lifecycle, quality scores, alerts, and a full change
+-- audit trail. Unlike the consolidation tables, they hold *curated* state that
+-- must survive a ``consolidate`` (which deletes and recreates knowledge_objects):
+-- ownership, review decisions, and freshness history would be destroyed by an
+-- ON DELETE CASCADE. They therefore reference ``knowledge_objects.id`` softly
+-- (by value, with an index) rather than via an enforced foreign key - the same
+-- approach the links/semantic tables use for the non-unique artifact id - so the
+-- governance history is preserved across re-consolidation.
+CREATE TABLE IF NOT EXISTS knowledge_owners(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  object_id TEXT NOT NULL,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  assigned_at TEXT,
+  assigned_by TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_owners_object ON knowledge_owners(object_id);
+CREATE TABLE IF NOT EXISTS knowledge_lifecycle(
+  object_id TEXT PRIMARY KEY,
+  name TEXT,
+  object_type TEXT,
+  created_at TEXT,
+  last_seen_at TEXT,
+  last_reviewed_at TEXT,
+  last_confirmed_at TEXT,
+  last_confidence REAL,
+  freshness_score REAL,
+  freshness_state TEXT DEFAULT 'FRESH',
+  review_state TEXT DEFAULT 'PENDING_REVIEW',
+  present INTEGER DEFAULT 1,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_lifecycle_freshness ON knowledge_lifecycle(freshness_state);
+CREATE INDEX IF NOT EXISTS idx_knowledge_lifecycle_review ON knowledge_lifecycle(review_state);
+CREATE TABLE IF NOT EXISTS knowledge_quality(
+  object_id TEXT PRIMARY KEY,
+  quality_score REAL,
+  evidence_score REAL,
+  review_score REAL,
+  freshness_score REAL,
+  consistency_score REAL,
+  owner_score REAL,
+  confidence_score REAL,
+  evidence_count INTEGER,
+  document_count INTEGER,
+  computed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS knowledge_alerts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  alert_type TEXT NOT NULL,
+  severity TEXT DEFAULT 'INFO',
+  object_id TEXT,
+  message TEXT,
+  status TEXT DEFAULT 'OPEN',
+  created_at TEXT,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_alerts_type ON knowledge_alerts(alert_type);
+CREATE INDEX IF NOT EXISTS idx_knowledge_alerts_object ON knowledge_alerts(object_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_alerts_status ON knowledge_alerts(status);
+CREATE TABLE IF NOT EXISTS knowledge_change_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  change_type TEXT NOT NULL,
+  target_kind TEXT,
+  object_id TEXT,
+  field TEXT,
+  old_value TEXT,
+  new_value TEXT,
+  detail TEXT,
+  detected_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_change_log_object ON knowledge_change_log(object_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_change_log_type ON knowledge_change_log(change_type);
 """
 
 # Columns expected on a current ``artifacts`` table; a mismatch triggers a
@@ -413,6 +490,44 @@ def _knowledge_tables_stale(conn: sqlite3.Connection) -> bool:
     )
 
 
+# Expected columns for the governance-layer tables (Prompt #10). They hold
+# curated state, but on a layout change there is nothing to migrate to, so a
+# mismatched table is dropped and recreated. They have no inter-table foreign
+# keys, so each can be dropped independently.
+_EXPECTED_GOVERNANCE_COLUMNS = {
+    "knowledge_owners": {
+        "id", "object_id", "owner_type", "owner_id", "assigned_at", "assigned_by",
+    },
+    "knowledge_lifecycle": {
+        "object_id", "name", "object_type", "created_at", "last_seen_at",
+        "last_reviewed_at", "last_confirmed_at", "last_confidence",
+        "freshness_score", "freshness_state", "review_state", "present",
+        "updated_at",
+    },
+    "knowledge_quality": {
+        "object_id", "quality_score", "evidence_score", "review_score",
+        "freshness_score", "consistency_score", "owner_score", "confidence_score",
+        "evidence_count", "document_count", "computed_at",
+    },
+    "knowledge_alerts": {
+        "id", "alert_type", "severity", "object_id", "message", "status",
+        "created_at", "resolved_at",
+    },
+    "knowledge_change_log": {
+        "id", "change_type", "target_kind", "object_id", "field",
+        "old_value", "new_value", "detail", "detected_at",
+    },
+}
+
+
+def _stale_governance_tables(conn: sqlite3.Connection) -> list[str]:
+    return [
+        table
+        for table, expected in _EXPECTED_GOVERNANCE_COLUMNS.items()
+        if _columns_mismatch(conn, table, expected)
+    ]
+
+
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     """Create the schema, rebuilding the local index if it predates this layout.
 
@@ -442,6 +557,10 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         if _knowledge_tables_stale(conn):
             for table in _KNOWLEDGE_DROP_ORDER:
                 conn.execute(f"DROP TABLE IF EXISTS {table}")
+        # Governance tables (Prompt #10) evolve independently; drop any whose
+        # columns no longer match so the recreated schema is authoritative.
+        for table in _stale_governance_tables(conn):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.executescript(SCHEMA)
 
 

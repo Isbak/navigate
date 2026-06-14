@@ -5,11 +5,11 @@
 # and serves it as a query layer.
 #
 # ``endpoint`` is the dataset base URL. The loader uploads via the SPARQL Update
-# endpoint at ``<endpoint>/update``. Start a local Fuseki with the ``atlas``
+# endpoint at ``<endpoint>/update``. Start a local Fuseki with the ``navigate``
 # dataset and point ``endpoint`` at it, e.g.:
 #
-#   fuseki-server --update --mem /knowledge-atlas
+#   fuseki-server --update --mem /navigate
 
 fuseki:
-  endpoint: http://localhost:3030/knowledge-atlas
-  dataset: atlas
+  endpoint: http://localhost:3030/navigate
+  dataset: navigate

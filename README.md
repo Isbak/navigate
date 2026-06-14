@@ -950,6 +950,12 @@ client can consume the knowledge platform. The API **does not replace the CLI**:
 both call the same service/repository layer, and the route handlers contain no
 business logic and no SQL.
 
+See [`docs/navigate-api.md`](docs/navigate-api.md) for the client-facing
+contract notes — in particular the **graceful gaps** the API deliberately does
+not expose (a domains resource, a knowledge-growth trend, a change-log feed, and
+per-row counts) and how clients such as `navigate-compass` degrade gracefully
+rather than inventing them.
+
 Run the server locally:
 
 ```bash

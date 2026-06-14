@@ -358,8 +358,9 @@ subclass:
 - `ClaudeProvider` — talks to Anthropic's Claude Messages API.
 - `OpenAIProvider` — talks to the OpenAI Chat Completions API.
 
-All providers use only the standard library (no vendor SDK dependency). Configure the
-active provider in `config/llm.yml`:
+All providers use only the standard library (no vendor SDK dependency). Keep
+shareable, non-secret provider settings in `config/llm.yml`; put real API keys in
+your shell environment or an ignored `.env` copied from `.env.example`:
 
 ```yaml
 provider: claude
@@ -369,10 +370,12 @@ ollama:
   host: http://localhost:11434
 
 claude:
-  model: claude-sonnet-4-5  # ANTHROPIC_API_KEY is read from the environment
+  model: claude-sonnet-4-5
+  api_key_env: ANTHROPIC_API_KEY  # value is read from env/.env, not YAML
 
 openai:
-  model: gpt-5.5            # OPENAI_API_KEY is read from the environment
+  model: gpt-5.5
+  api_key_env: OPENAI_API_KEY     # value is read from env/.env, not YAML
 
 max_input_chars: 12000      # extracted text is truncated to this before prompting
 ```
@@ -1007,11 +1010,13 @@ enable_graphrag: false
 enable_classify: false
 ```
 
-Set `require_api_key: true` and export the key to require
-`Authorization: Bearer <token>` on every `/api` request:
+Set `require_api_key: true` and put the key in your shell environment or local
+`.env` (not in `config/api.yml`) to require `Authorization: Bearer <token>` on
+every `/api` request:
 
 ```bash
-export NAVIGATE_API_KEY="my-secret"
+cp .env.example .env
+# edit .env so NAVIGATE_API_KEY has a long random value
 ```
 
 Long-running pipeline operations are exposed as **jobs**, tracked in SQLite

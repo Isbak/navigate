@@ -34,6 +34,7 @@ def _build_claude(config: LLMConfig) -> BaseLLMProvider:
         timeout=int(opts.get("timeout", 120)),
         max_tokens=int(opts.get("max_tokens", 4096)),
         anthropic_version=opts.get("anthropic_version", "2023-06-01"),
+        api_key_env=opts.get("api_key_env", "ANTHROPIC_API_KEY"),
     )
 
 
@@ -43,6 +44,7 @@ def _build_openai(config: LLMConfig) -> BaseLLMProvider:
         config.model,
         base_url=opts.get("base_url", "https://api.openai.com/v1"),
         timeout=int(opts.get("timeout", 120)),
+        api_key_env=opts.get("api_key_env", "OPENAI_API_KEY"),
     )
 
 

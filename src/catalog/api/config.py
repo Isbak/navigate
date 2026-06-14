@@ -20,6 +20,8 @@ from pathlib import Path
 
 import yaml
 
+from catalog.env import load_dotenv
+
 DEFAULT_CONFIG_PATH = Path("config/api.yml")
 
 # Local development origins allowed by CORS out of the box. Deliberately narrow:
@@ -57,6 +59,7 @@ class ApiSettings:
     def api_key(self) -> str | None:
         """The configured API key, read from the environment at access time."""
 
+        load_dotenv()
         value = os.environ.get(self.api_key_env)
         return value.strip() if value and value.strip() else None
 
@@ -92,6 +95,7 @@ def _resolve_path(value: object, default: str, base_dir: Path) -> str:
 def load_api_config(path: str | Path = DEFAULT_CONFIG_PATH) -> ApiSettings:
     """Load API settings, returning all-defaults if the file is absent."""
 
+    load_dotenv()
     data: dict = {}
     p = Path(path)
     config_exists = p.exists()

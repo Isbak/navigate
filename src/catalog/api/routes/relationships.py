@@ -40,7 +40,9 @@ def list_relationships(
         offset=page.offset,
     )
     items = [serializers.relationship(r) for r in rows]
-    return PaginatedResponse(items=items, limit=page.limit, offset=page.offset, total=total)
+    return PaginatedResponse(
+        items=items, limit=page.limit, offset=page.offset, total=total
+    )
 
 
 @router.get("/{relationship_id}", response_model=Relationship)
@@ -65,6 +67,13 @@ def reject_relationship(
     relationship_id: int, settings: ApiSettings = Depends(get_settings)
 ) -> ActionResponse:
     return _review(settings, relationship_id, ReviewState.REJECTED.value)
+
+
+@router.post("/{relationship_id}/archive", response_model=ActionResponse)
+def archive_relationship(
+    relationship_id: int, settings: ApiSettings = Depends(get_settings)
+) -> ActionResponse:
+    return _review(settings, relationship_id, ReviewState.ARCHIVED.value)
 
 
 def _review(settings, relationship_id: int, status: str) -> ActionResponse:

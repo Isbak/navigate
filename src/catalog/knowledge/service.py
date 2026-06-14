@@ -47,6 +47,7 @@ _PRESERVED_STATUSES = {
     ReviewState.REVIEWED.value,
     ReviewState.APPROVED.value,
     ReviewState.REJECTED.value,
+    ReviewState.ARCHIVED.value,
 }
 
 
@@ -97,7 +98,7 @@ def _assign_ids(clusters: list[Cluster]) -> list[tuple[str, Cluster]]:
 
 
 def _build_resolver(
-    assigned: list[tuple[str, Cluster]]
+    assigned: list[tuple[str, Cluster]],
 ) -> tuple[dict[str, str], list[tuple[str, str]]]:
     """Index every member surface form to its object id.
 
@@ -306,7 +307,7 @@ def consolidate(
 
         rel_total: dict[str, int] = {}
         rel_rejected: dict[str, int] = {}
-        for (src, pred, tgt) in resolved_rels:
+        for src, pred, tgt in resolved_rels:
             status = prior_rel_status.get((src, pred, tgt), ReviewState.PROPOSED.value)
             for endpoint in (src, tgt):
                 rel_total[endpoint] = rel_total.get(endpoint, 0) + 1
@@ -383,6 +384,7 @@ def review_object(
 ) -> bool:
     """Set an object's review status and record the action in the audit trail."""
 
+    init_db(db_path)
     if status not in {s.value for s in ReviewState}:
         raise ValueError(f"Unknown review status: {status}")
     now = _utc_now()
@@ -419,6 +421,7 @@ def review_relationship(
     survives re-consolidation; ``consolidate(force=True)`` discards it.
     """
 
+    init_db(db_path)
     if status not in {s.value for s in ReviewState}:
         raise ValueError(f"Unknown review status: {status}")
     now = _utc_now()

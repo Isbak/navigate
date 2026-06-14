@@ -27,9 +27,7 @@ def test_load_api_config_resolves_storage_paths_from_repo_root(tmp_path, monkeyp
     cfg_dir.mkdir(parents=True)
     cfg = cfg_dir / "api.yml"
     cfg.write_text(
-        "db_path: data/catalog.sqlite\n"
-        "cache_dir: cache\n"
-        "queries_dir: queries\n",
+        "db_path: data/catalog.sqlite\n" "cache_dir: cache\n" "queries_dir: queries\n",
         encoding="utf-8",
     )
     outside = tmp_path / "outside"
@@ -56,7 +54,9 @@ def test_load_api_config_env_db_override_is_absolute(tmp_path, monkeypatch):
     assert settings.db_path == str(tmp_path / "repo" / "override" / "catalog.sqlite")
 
 
-def test_load_api_config_reads_dotenv_without_overriding_environment(tmp_path, monkeypatch):
+def test_load_api_config_reads_dotenv_without_overriding_environment(
+    tmp_path, monkeypatch
+):
     repo = tmp_path / "repo"
     cfg_dir = repo / "config"
     cfg_dir.mkdir(parents=True)
@@ -114,7 +114,13 @@ def _seed_candidates(conn) -> None:
     capability("doc_a", "Release Governance", 0.94, "we run release governance")
     capability("doc_b", "Release Management", 0.88, "release management practice")
     decision("doc_a", "Launchpad Model", 0.90, "adopt the launchpad model")
-    entity("doc_a", "Team", "Test & Release Team", 0.85, "owned by the test and release team")
+    entity(
+        "doc_a",
+        "Team",
+        "Test & Release Team",
+        0.85,
+        "owned by the test and release team",
+    )
     entity("doc_b", "Platform", "Salesforce", 0.80, "salesforce platform")
 
     relationship("doc_a", "Release Governance", "supports", "Launchpad Model")
@@ -167,7 +173,9 @@ def seeded_db(tmp_path) -> str:
     consolidate(db)
     with connect(db) as conn:
         object_ids = [r["id"] for r in conn.execute("SELECT id FROM knowledge_objects")]
-        rel_ids = [r["id"] for r in conn.execute("SELECT id FROM knowledge_relationships")]
+        rel_ids = [
+            r["id"] for r in conn.execute("SELECT id FROM knowledge_relationships")
+        ]
     for oid in object_ids:
         review_object(db, oid, ReviewState.APPROVED.value)
     for rid in rel_ids:
@@ -191,6 +199,7 @@ def client(seeded_db, tmp_path) -> TestClient:
 
 # -- Swagger / OpenAPI ---------------------------------------------------------
 
+
 def test_swagger_docs_and_openapi_schema(client):
     docs = client.get("/docs")
     assert docs.status_code == 200
@@ -212,6 +221,7 @@ def test_swagger_docs_and_openapi_schema(client):
 
 
 # -- health & stats -----------------------------------------------------------
+
 
 def test_health(client):
     resp = client.get("/api/health")
@@ -260,6 +270,7 @@ def test_stats_includes_latest_local_scan_run(client, seeded_db):
 
 # -- artifacts ----------------------------------------------------------------
 
+
 def test_artifact_list_and_detail(client):
     body = client.get("/api/artifacts").json()
     assert body["total"] == 2
@@ -299,6 +310,7 @@ def test_artifact_links_and_evidence(client):
 
 # -- links --------------------------------------------------------------------
 
+
 def test_links_list_and_filter(client):
     body = client.get("/api/links").json()
     assert body["total"] == 2
@@ -316,6 +328,7 @@ def test_link_stats_and_top_targets(client):
 
 # -- knowledge ----------------------------------------------------------------
 
+
 def test_knowledge_list_and_detail(client):
     body = client.get("/api/knowledge-objects").json()
     assert body["total"] >= 1
@@ -325,10 +338,35 @@ def test_knowledge_list_and_detail(client):
     assert detail["review_status"] is not None  # joined from governance lifecycle
 
 
+def test_knowledge_review_actions(client):
+    obj_id = client.get("/api/knowledge-objects").json()["items"][0]["id"]
+
+    approve = client.post(f"/api/knowledge-objects/{obj_id}/approve")
+    assert approve.status_code == 200
+    assert approve.json()["status"] == "APPROVED"
+    assert (
+        client.get(f"/api/knowledge-objects/{obj_id}").json()["review_status"]
+        == "APPROVED"
+    )
+
+    reject = client.post(f"/api/knowledge-objects/{obj_id}/reject")
+    assert reject.status_code == 200
+    assert reject.json()["status"] == "REJECTED"
+    assert (
+        client.get(f"/api/knowledge-objects/{obj_id}").json()["review_status"]
+        == "REJECTED"
+    )
+
+    archive = client.post(f"/api/knowledge-objects/{obj_id}/archive")
+    assert archive.status_code == 200
+    assert archive.json()["status"] == "ARCHIVED"
+    detail = client.get(f"/api/knowledge-objects/{obj_id}").json()
+    assert detail["review_status"] == "ARCHIVED"
+    assert detail["status"] == "ARCHIVED"
+
+
 def test_knowledge_filter_min_confidence(client):
-    body = client.get(
-        "/api/knowledge-objects", params={"min_confidence": 0.99}
-    ).json()
+    body = client.get("/api/knowledge-objects", params={"min_confidence": 0.99}).json()
     assert all(o["confidence"] >= 0.99 for o in body["items"])
 
 
@@ -342,6 +380,7 @@ def test_knowledge_relationships_and_mentions(client):
 
 # -- relationships ------------------------------------------------------------
 
+
 def test_relationship_list_detail_and_approval(client):
     body = client.get("/api/relationships").json()
     assert body["total"] >= 1
@@ -352,10 +391,20 @@ def test_relationship_list_detail_and_approval(client):
     resp = client.post(f"/api/relationships/{rel_id}/reject")
     assert resp.status_code == 200
     assert resp.json()["status"] == "REJECTED"
-    assert client.get(f"/api/relationships/{rel_id}").json()["review_status"] == "REJECTED"
+    assert (
+        client.get(f"/api/relationships/{rel_id}").json()["review_status"] == "REJECTED"
+    )
+
+    archive = client.post(f"/api/relationships/{rel_id}/archive")
+    assert archive.status_code == 200
+    assert archive.json()["status"] == "ARCHIVED"
+    assert (
+        client.get(f"/api/relationships/{rel_id}").json()["review_status"] == "ARCHIVED"
+    )
 
 
 # -- governance ---------------------------------------------------------------
+
 
 def test_governance_dashboard(client):
     body = client.get("/api/governance/dashboard").json()
@@ -427,6 +476,7 @@ def test_knowledge_objects_include_per_row_counts(client):
 
 # -- graph --------------------------------------------------------------------
 
+
 def test_graph_nodes_and_edges(client):
     nodes = client.get("/api/graph/nodes").json()
     assert nodes["total"] >= 1
@@ -448,6 +498,7 @@ def test_graph_export_json(client):
 
 # -- ask ----------------------------------------------------------------------
 
+
 def test_ask_not_implemented_by_default(client):
     resp = client.post("/api/ask", json={"question": "what is release governance?"})
     assert resp.status_code == 501
@@ -456,6 +507,7 @@ def test_ask_not_implemented_by_default(client):
 
 
 # -- jobs ---------------------------------------------------------------------
+
 
 def test_jobs_consolidate_and_list(client):
     resp = client.post("/api/jobs/consolidate")
@@ -479,6 +531,7 @@ def test_jobs_classify_disabled_fails_cleanly(client):
 
 # -- error handling -----------------------------------------------------------
 
+
 def test_not_found_error_shape(client):
     resp = client.get("/api/artifacts/missing")
     assert resp.status_code == 404
@@ -495,6 +548,7 @@ def test_validation_error(client):
 
 
 # -- API key auth -------------------------------------------------------------
+
 
 def test_api_key_auth(seeded_db, tmp_path, monkeypatch):
     monkeypatch.setenv("NAVIGATE_API_KEY", "secret-token")

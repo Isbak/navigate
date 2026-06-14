@@ -562,3 +562,40 @@ def test_api_key_auth(seeded_db, tmp_path, monkeypatch):
     assert ok.status_code == 200
     bad = client.get("/api/health", headers={"Authorization": "Bearer wrong"})
     assert bad.status_code == 401
+
+
+def test_approve_confidence_endpoints(client, seeded_db):
+    with connect(seeded_db) as conn:
+        conn.execute("UPDATE knowledge_objects SET status = 'PROPOSED'")
+        conn.execute("UPDATE knowledge_relationships SET review_status = 'PROPOSED'")
+        conn.commit()
+
+    obj_resp = client.post(
+        "/api/knowledge-objects/approve-confidence",
+        json={"min_confidence": 0.0, "max_confidence": 1.0, "note": "bulk approve"},
+    )
+    assert obj_resp.status_code == 200
+    assert obj_resp.json()["objects_approved"] > 0
+
+    rel_resp = client.post(
+        "/api/relationships/approve-confidence",
+        json={"min_confidence": 0.0, "max_confidence": 1.0},
+    )
+    assert rel_resp.status_code == 200
+    assert rel_resp.json()["relationships_approved"] > 0
+
+    with connect(seeded_db) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM knowledge_objects WHERE status = 'APPROVED'"
+        ).fetchone()[0] == obj_resp.json()["objects_approved"]
+        assert conn.execute(
+            "SELECT COUNT(*) FROM knowledge_relationships WHERE review_status = 'APPROVED'"
+        ).fetchone()[0] == rel_resp.json()["relationships_approved"]
+
+
+def test_approve_confidence_rejects_inverted_interval(client):
+    resp = client.post(
+        "/api/knowledge-objects/approve-confidence",
+        json={"min_confidence": 0.90, "max_confidence": 0.80},
+    )
+    assert resp.status_code == 400

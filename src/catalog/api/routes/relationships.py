@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...knowledge.models import ReviewState
-from ...knowledge.service import review_relationship
+from ...knowledge.service import approve_relationships_by_confidence, review_relationship
 from .. import repository as repo
 from .. import serializers
 from ..config import ApiSettings
 from ..dependencies import get_db, get_settings
 from ..errors import not_found
 from ..pagination import Pagination, pagination_params
-from ..schemas import ActionResponse, PaginatedResponse, Relationship
+from ..schemas import (
+    ActionResponse,
+    ConfidenceApprovalRequest,
+    ConfidenceApprovalResponse,
+    PaginatedResponse,
+    Relationship,
+)
 
 router = APIRouter(prefix="/relationships", tags=["relationships"])
 
@@ -42,6 +48,38 @@ def list_relationships(
     items = [serializers.relationship(r) for r in rows]
     return PaginatedResponse(
         items=items, limit=page.limit, offset=page.offset, total=total
+    )
+
+
+@router.post("/approve-confidence", response_model=ConfidenceApprovalResponse)
+def approve_relationships_by_confidence_interval(
+    request: ConfidenceApprovalRequest,
+    settings: ApiSettings = Depends(get_settings),
+) -> ConfidenceApprovalResponse:
+    if request.min_confidence > request.max_confidence:
+        raise HTTPException(
+            status_code=400,
+            detail="min_confidence must be less than or equal to max_confidence",
+        )
+    statuses = [ReviewState.PROPOSED.value]
+    if request.include_reviewed:
+        statuses.append(ReviewState.REVIEWED.value)
+    approved = 0
+    for status in statuses:
+        stats = approve_relationships_by_confidence(
+            settings.db_path,
+            request.min_confidence,
+            request.max_confidence,
+            reviewer="api",
+            note=request.note,
+            current_status=status,
+        )
+        approved += stats.relationships_approved
+    return ConfidenceApprovalResponse(
+        min_confidence=request.min_confidence,
+        max_confidence=request.max_confidence,
+        relationships_approved=approved,
+        message=f"Approved {approved} relationships",
     )
 
 

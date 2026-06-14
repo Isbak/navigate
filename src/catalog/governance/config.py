@@ -45,24 +45,8 @@ class DriftConfig:
 
 
 @dataclass(frozen=True)
-class DomainConfig:
-    name: str
-    owner: str = ""
-
-
-@dataclass(frozen=True)
 class IngestionConfig:
     schedule: str = "manual"
-
-
-_DEFAULT_DOMAINS = (
-    DomainConfig("Digital Transformation", "Digital Platform Team"),
-    DomainConfig("Architecture", "Architecture Guild"),
-    DomainConfig("Leadership", "Executive Team"),
-    DomainConfig("Test & Release", "Test & Release Team"),
-    DomainConfig("Data", "Data Team"),
-    DomainConfig("Operations", "Operations Team"),
-)
 
 
 @dataclass(frozen=True)
@@ -71,14 +55,7 @@ class GovernanceConfig:
     review: ReviewConfig = field(default_factory=ReviewConfig)
     quality: QualityConfig = field(default_factory=QualityConfig)
     drift: DriftConfig = field(default_factory=DriftConfig)
-    domains: tuple[DomainConfig, ...] = _DEFAULT_DOMAINS
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
-
-    def domain_owner(self, name: str) -> str:
-        for domain in self.domains:
-            if domain.name.lower() == (name or "").lower():
-                return domain.owner
-        return ""
 
 
 def _section(data: dict, key: str) -> dict:
@@ -104,16 +81,6 @@ def load_governance_config(
     weights = _section(qc, "weights")
     dr = _section(data, "drift")
     ing = _section(data, "ingestion")
-
-    domains_raw = data.get("domains")
-    if isinstance(domains_raw, list) and domains_raw:
-        domains = tuple(
-            DomainConfig(name=str(d.get("name", "")).strip(), owner=str(d.get("owner", "")).strip())
-            for d in domains_raw
-            if isinstance(d, dict) and str(d.get("name", "")).strip()
-        )
-    else:
-        domains = _DEFAULT_DOMAINS
 
     defaults = QualityConfig()
     return GovernanceConfig(
@@ -142,7 +109,6 @@ def load_governance_config(
             terminology_min_documents=int(dr.get("terminology_min_documents", 5)),
             min_confidence_delta=float(dr.get("min_confidence_delta", 0.05)),
         ),
-        domains=domains,
         ingestion=IngestionConfig(schedule=str(ing.get("schedule", "manual"))),
     )
 
@@ -152,7 +118,6 @@ __all__ = [
     "ReviewConfig",
     "QualityConfig",
     "DriftConfig",
-    "DomainConfig",
     "IngestionConfig",
     "GovernanceConfig",
     "load_governance_config",

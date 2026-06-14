@@ -63,7 +63,7 @@ def build_dashboard(
         for r in repo.count_open_alerts_by_type(conn)
     ]
 
-    domains = domain_analysis.domain_health(conn, config)
+    domains = domain_analysis.domain_health(conn)
     top_domains = [d for d in domains if d["object_count"] > 0][:5]
 
     return {

@@ -896,10 +896,11 @@ evidence without an object.
 
 ### Domain governance
 
-Objects are mapped to business domains (Digital Transformation, Architecture,
-Leadership, Test & Release, Data, Operations) through their documents'
-classifications. Each domain reports an owner, object count, average quality,
-average freshness, and review backlog.
+Objects are mapped to business domains through their documents' classifications.
+Domains are not predefined: they are discovered from the data, like every other
+object in the catalog, so a domain exists once a document has been classified
+under it. Each domain reports an object count, average quality, average
+freshness, and review backlog.
 
 ### Automated ingestion
 
@@ -941,8 +942,9 @@ catalog governance ingest [--schedule daily|weekly|manual] [--force]
 ```
 
 Rules are configured in `config/governance.yml` (freshness thresholds, quality
-weights, drift sensitivity, the domain → owner map, and the ingestion cadence);
-every value falls back to a sensible default, so governance runs out of the box.
+weights, drift sensitivity, and the ingestion cadence); every value falls back to
+a sensible default, so governance runs out of the box. Domains themselves are not
+configured — they are discovered from the documents' semantic classifications.
 
 ## REST API
 

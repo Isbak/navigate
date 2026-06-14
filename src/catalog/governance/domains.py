@@ -1,8 +1,10 @@
 """Domain governance.
 
-A *knowledge domain* (Digital Transformation, Architecture, Leadership, Test &
-Release, Data, Operations) is a business area the organization manages. Each
-domain has an owner (from config), a quality score, a freshness score, and a
+A *knowledge domain* is a business area the organization manages. Domains are not
+predefined: they are discovered from the data, exactly like every other object in
+the catalog. The semantic layer classifies each document into the domains it
+touches, and a domain exists for governance purposes once a document has been
+classified under it. Each domain has a quality score, a freshness score, and a
 review backlog.
 
 Knowledge objects are mapped to domains through their evidence: the documents
@@ -17,7 +19,6 @@ import json
 import sqlite3
 
 from . import repository as repo
-from .config import GovernanceConfig
 from .models import OPEN_REVIEW_STATES
 
 
@@ -45,13 +46,11 @@ def _object_domains(conn: sqlite3.Connection) -> dict[str, set[str]]:
     return out
 
 
-def domain_health(
-    conn: sqlite3.Connection, config: GovernanceConfig
-) -> list[dict]:
-    """Per-domain object count, owner, average quality and freshness, and backlog.
+def domain_health(conn: sqlite3.Connection) -> list[dict]:
+    """Per-domain object count, average quality and freshness, and review backlog.
 
-    Every configured domain appears even with zero objects, so a domain with no
-    coverage is itself visible (a governance signal in its own right).
+    Domains come entirely from the data: a domain appears once any document
+    classified under it mentions a knowledge object, with no predefined list.
     """
 
     obj_domains = _object_domains(conn)
@@ -64,8 +63,7 @@ def domain_health(
         for name in names:
             by_domain.setdefault(name, []).append(object_id)
 
-    # Ensure every configured domain is represented.
-    domain_names = {d.name for d in config.domains} | set(by_domain)
+    domain_names = set(by_domain)
 
     results: list[dict] = []
     for name in sorted(domain_names):
@@ -86,7 +84,6 @@ def domain_health(
         results.append(
             {
                 "domain": name,
-                "owner": config.domain_owner(name),
                 "object_count": len(members),
                 "avg_quality": round(sum(qualities) / len(qualities), 1) if qualities else 0.0,
                 "avg_freshness": round(sum(freshness) / len(freshness), 3) if freshness else 0.0,

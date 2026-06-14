@@ -87,7 +87,7 @@ def _cmd_dashboard(args) -> None:
     for d in data["top_domains"]:
         console.print(
             f"  {d['domain']}: {d['object_count']} objects, "
-            f"quality {d['avg_quality']}, owner {d['owner'] or '(unassigned)'}"
+            f"quality {d['avg_quality']}"
         )
 
     console.print("\n[bold]Recent changes[/bold]:")
@@ -295,15 +295,12 @@ def _cmd_owners(args) -> None:
 
 def _cmd_domains(args) -> None:
     console = _console()
-    config = _config(args)
     init_db(args.db)
     with connect(args.db) as conn:
-        rows = domain_analysis.domain_health(conn, config)
+        rows = domain_analysis.domain_health(conn)
     console.print("[bold]Domain governance[/bold]")
     for d in rows:
-        console.print(
-            f"\n[bold]{d['domain']}[/bold]  (owner: {d['owner'] or 'unassigned'})"
-        )
+        console.print(f"\n[bold]{d['domain']}[/bold]")
         console.print(
             f"  objects: {d['object_count']}    quality: {d['avg_quality']}    "
             f"freshness: {d['avg_freshness']}    review backlog: {d['review_backlog']}"

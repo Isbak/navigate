@@ -53,7 +53,7 @@ def governance_report(conn: sqlite3.Connection, config: GovernanceConfig) -> dic
     return {
         "objects": [dict(r) for r in objects],
         "orphans": orphans.all_orphans(conn),
-        "domains": domain_analysis.domain_health(conn, config),
+        "domains": domain_analysis.domain_health(conn),
     }
 
 

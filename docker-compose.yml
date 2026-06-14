@@ -26,9 +26,9 @@ services:
     image: stain/jena-fuseki:latest
     command: ["--update", "--mem", "/knowledge-atlas"]
     ports:
-      - "3030:3030"
+      - "127.0.0.1:3030:3030"
     environment:
-      ADMIN_PASSWORD: admin
+      ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD:-change-me}
     volumes:
       - fuseki-data:/fuseki
     healthcheck:

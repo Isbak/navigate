@@ -174,8 +174,12 @@ def _install_openapi_schema(app: FastAPI) -> None:
             routes=app.routes,
             tags=app.openapi_tags,
         )
+        # Paths already include API_PREFIX because routers are mounted with that
+        # prefix. Keep the OpenAPI server at the application root so Swagger UI
+        # does not prepend /api a second time when executing requests.
         schema.setdefault(
-            "servers", [{"url": API_PREFIX, "description": "Navigate API prefix"}]
+            "servers",
+            [{"url": "/", "description": "Navigate API application root"}],
         )
         schema.setdefault("info", {}).setdefault("x-logo", {"altText": "Navigate API"})
         app.openapi_schema = schema

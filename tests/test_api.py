@@ -148,6 +148,9 @@ def test_swagger_docs_and_openapi_schema(client):
         "jobs",
     }
     assert "/api/artifacts" in schema["paths"]
+    assert schema["servers"] == [
+        {"url": "/", "description": "Navigate API application root"}
+    ]
     assert "HTTPBearer" in schema["components"]["securitySchemes"]
 
 

@@ -9,8 +9,10 @@ services:
       NAVIGATE_DB: /data/catalog.sqlite
       NAVIGATE_CACHE: /data/cache
     volumes:
-      # Persist the regenerable SQLite index and document cache.
-      - navigate-data:/data
+      # Share the workspace SQLite index and cache with the container so API
+      # and local CLI commands see the same data.
+      - ./data:/data
+      - ./cache:/data/cache
       # Live-editable configuration and query library (read-only in the container).
       - ./config:/app/config:ro
       - ./queries:/app/queries:ro
@@ -40,4 +42,3 @@ services:
 
 volumes:
   fuseki-data:
-  navigate-data:

@@ -126,3 +126,10 @@ def test_export_links_csv(tmp_path, capsys, monkeypatch):
     exported = (tmp_path / "exports" / "links.csv").read_text(encoding="utf-8")
     assert "normalized_url" in exported
     assert "github.com/acme/repo" in exported
+
+
+def test_knowledge_growth_command(governed_db, capsys):
+    assert main(["--db", governed_db, "knowledge-growth", "--interval", "month"]) == 0
+    out = capsys.readouterr().out
+    assert "Knowledge growth (by month):" in out
+    assert "objects +" in out

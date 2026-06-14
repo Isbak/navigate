@@ -6,10 +6,6 @@ client — primarily [`navigate-compass`](https://github.com/isbak/navigate) (th
 endpoint table in the project [`README.md`](../README.md#rest-api) and the live
 OpenAPI schema served at `/openapi.json`; it does not duplicate them.
 
-The focus here is the part a client cannot learn from the OpenAPI schema alone:
-**what the API deliberately does not expose, and how a client is expected to
-degrade gracefully instead of inventing it.**
-
 ## Ground rules
 
 - **Base path**: every endpoint lives under `/api` (for example
@@ -25,97 +21,83 @@ degrade gracefully instead of inventing it.**
   `POST /api/ask` returns `501` until GraphRAG is enabled. Treat a `501` from
   `ask` as "feature off", not "broken".
 
-## Graceful gaps
+## Closing the gaps
 
-The API is intentionally a thin, stable projection of the existing
-service/repository layer. Several things a dashboard UI might *want* are not
-part of that projection. They are listed here so clients hide or derive them
-rather than fabricating data that looks authoritative but is not.
+Earlier, four things a dashboard UI wants were not part of the projection, and
+clients had to hide or derive them. They are now first-class. Each is a thin
+projection of an existing service/repository function (no business logic in the
+route), and each has a matching CLI command, so the API and the `catalog` CLI
+stay in lockstep.
 
-For each gap: what is missing, why, and what Compas does instead.
+### 1. Domains resource
 
-### 1. No domains resource
+A knowledge domain is a business area (Digital Transformation, Architecture,
+Test & Release, …). Objects belong to the domains their source documents were
+classified under; the domain's metrics are aggregated over its objects.
 
-**Missing.** There is no `GET /api/domains` (nor any `/api/domains/{id}`). A
-client cannot enumerate the knowledge domains, their owners, or their per-domain
-quality / freshness / backlog metrics through the API.
+| | |
+|-|-|
+| List | `GET /api/governance/domains` → `[DomainHealth]` |
+| Detail | `GET /api/governance/domains/{name}` → `DomainHealth` (404 if unknown) |
+| CLI | `catalog governance domains` |
 
-**What does exist.** `domain` is only a *filter*:
-`GET /api/knowledge-objects?domain=<name>` narrows the object list. Domain
-*analysis* lives behind the CLI and the governance dashboard
-(`catalog.governance.domains`, `catalog.graph.domains`,
-`queries/knowledge_domains.rq`), where domains are aggregated from document
-classifications and the graph's object types — but none of that is surfaced as a
-REST resource.
+`DomainHealth` = `{domain, owner, object_count, avg_quality, avg_freshness,
+review_backlog}`. Every *configured* domain is returned even with zero objects,
+so an uncovered domain is itself visible (a governance signal). The owner comes
+from `config/governance.yml`.
 
-**Degrade gracefully.** Compas does not render a domains landing page, a domain
-directory, or per-domain metric tiles. Where a domain filter control is useful,
-it is populated lazily from the `domain`/`object_type` values present on objects
-the client has already loaded — it is treated as "the domains seen so far", not
-as a canonical, exhaustive list. Compas never synthesizes per-domain owners or
-scores client-side.
+### 2. Knowledge-growth trend
 
-### 2. No knowledge-growth trend
+A time series of how the catalog grew, bucketed by period.
 
-**Missing.** There is no time series of how the catalog grew. `GET /api/stats`
-returns point-in-time totals (`artifact_count`, `knowledge_object_count`,
-`relationship_count`, …) and a single `last_scan` object — not a history of
-those counts over time. No endpoint returns "objects added per day/week".
+| | |
+|-|-|
+| Endpoint | `GET /api/governance/growth?interval=month&limit=12` → `GrowthTrend` |
+| Params | `interval` ∈ `day` \| `week` \| `month` (default `month`); `limit` periods (default 12) |
+| CLI | `catalog knowledge-growth --interval month --limit 12` |
 
-**Why.** The index is regenerable and counts are snapshots; the API does not
-keep a metrics history table to back a trend line.
+`GrowthTrend` = `{interval, points: [GrowthPoint]}` where each `GrowthPoint` is
+`{period, artifacts_added, artifacts_total, objects_added, objects_total,
+relationships_added, relationships_total}`. `*_added` is new in the period;
+`*_total` is the cumulative count. Cumulative totals are computed over the full
+history first and *then* windowed to the last `limit` periods, so the totals
+stay correct under windowing. Periods with no new rows are omitted, but the
+cumulative total carries forward across the gap. Rows whose creation timestamp
+is missing or unparseable contribute to no period.
 
-**Degrade gracefully.** Compas shows the `stats` totals as plain numbers / KPI
-cards. It does not draw sparklines, growth curves, or "+N this week" deltas, and
-it does not infer a trend from a single snapshot. If growth ever matters, it is
-left blank or labelled "not tracked" rather than interpolated.
+### 3. Change-log / activity feed
 
-### 3. No change-log / activity feed
+The governance change-log (audit trail): objects added/removed, confidence and
+freshness transitions, relationships added/removed, review decisions, and drift
+findings — newest first.
 
-**Missing.** There is no feed of recent content changes — newly added objects,
-approvals/rejections, edits, merges. There is no `GET /api/changes`,
-`/api/activity`, or audit stream.
+| | |
+|-|-|
+| Endpoint | `GET /api/governance/changes` → `PaginatedResponse[ChangeLogEntry]` |
+| Filters | `object_id`, `change_type`, plus `limit` / `offset` |
+| CLI | `catalog governance changes` (and `catalog governance history <id>` for one object) |
 
-**What does exist (and is not the same thing).** `GET /api/jobs` lists
-*pipeline executions* (scan, extract, classify, …) with their status and
-timing. That is operational job history, not a content-level change log, and
-clients should not present it as "recent activity in the knowledge base".
+`ChangeLogEntry` = `{id, change_type, target_kind, object_id, field, old_value,
+new_value, detail, detected_at}`. The feed is populated by `catalog governance
+scan` (and review actions), so run a scan to keep it current. This is distinct
+from `GET /api/jobs`, which is pipeline-execution history, not content changes.
 
-**Degrade gracefully.** Compas omits any "recent activity" / changelog panel.
-When a recency hint is genuinely needed, it falls back to ordering a specific
-resource by its own `updated_at` / `created_at` timestamps (objects,
-relationships, evidence all carry them) rather than presenting a unified,
-cross-resource feed that the API cannot back.
+### 4. Per-row child counts
 
-### 4. No per-row child counts
+List rows now carry their child counts, so a table view can show badges without
+an N+1 fan-out to the sub-resources.
 
-**Missing.** List rows do not carry aggregate counts of their children. A
-`KnowledgeObject` in `GET /api/knowledge-objects` has no `relationship_count`,
-`evidence_count`, or `mention_count`. To learn how many relationships an object
-has, a client must call `GET /api/knowledge-objects/{id}/relationships` (and the
-`/evidence`, `/mentions` siblings). Those sub-resource endpoints return the full
-list in one shot, so their `total` equals the page length — they are a fetch,
-not a cheap count.
+`GET /api/knowledge-objects` (and the detail endpoint) include, on every row,
+`relationship_count`, `evidence_count`, and `mention_count`. The dedicated
+sub-resource endpoints (`.../relationships`, `.../evidence`, `.../mentions`)
+remain the way to fetch the actual rows. The CLI already surfaces these counts
+via `catalog show-object` and `catalog knowledge-stats`.
 
-**Degrade gracefully.** Compas does not show count badges in list / table views,
-because doing so would mean an N+1 fan-out of requests per page. Counts are
-fetched lazily, only when a row is expanded or a detail view is opened, and the
-badge is simply absent until then.
+## The principle still holds
 
-**Use the counts that *are* there.** Two payloads already include the relevant
-counts, and clients should prefer them instead of fanning out:
-
-- **Quality** (`GET /api/governance/quality`): each `QualityItem` carries
-  `evidence_count` and `document_count`.
-- **Graph nodes** (`GET /api/graph/nodes`, `/api/graph/export-json`): each
-  `GraphNode` carries `documents` and `mentions`.
-
-## Why this is the right default
-
-Inventing a domains list, a growth curve, a change feed, or per-row counts on
-the client would produce numbers that look authoritative but drift from the
-catalog. Because the catalog is the source of truth and the API is a deliberately
-thin projection of it, the honest client behavior is to **render what the API
-returns and visibly omit the rest** — which is exactly what Compas does. If any
-of these become first-class needs, the fix is to add the resource to the API (so
-every client benefits and stays consistent), not to reconstruct it per client.
+The API remains a deliberately thin projection of the catalog, which is the
+single source of truth. The right way to add a capability is to project it from
+an existing service function so every client benefits and stays consistent —
+which is exactly how the four resources above were added. A client should still
+render what the API returns and visibly omit anything genuinely out of scope,
+rather than fabricating numbers on the client that would drift from the catalog.

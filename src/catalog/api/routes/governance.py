@@ -1,22 +1,31 @@
-"""Governance endpoints: dashboard, review queue, freshness, orphans, alerts, quality."""
+"""Governance endpoints: dashboard, review queue, freshness, orphans, alerts,
+quality, domains, change-log feed, and the knowledge-growth trend."""
 
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 
+from ...governance import domains as domain_analysis
 from ...governance import repository as gov_repo
 from ...governance.config import load_governance_config
 from ...governance.dashboard import build_dashboard
 from ...governance.models import FreshnessState, OPEN_REVIEW_STATES
 from ...governance.orphans import all_orphans
+from ...knowledge import analytics as know_analytics
 from .. import serializers
 from ..config import ApiSettings
 from ..dependencies import get_db, get_settings
+from ..errors import not_found
+from ..pagination import Pagination, pagination_params
 from ..schemas import (
+    ChangeLogEntry,
+    DomainHealth,
     GovernanceAlert,
+    GrowthTrend,
+    PaginatedResponse,
     QualityItem,
     QualityResponse,
     ReviewQueueItem,
@@ -84,6 +93,67 @@ def alerts(
     if severity:
         items = [a for a in items if a.severity == severity]
     return items
+
+
+@router.get("/domains", response_model=list[DomainHealth])
+def domains(
+    conn: sqlite3.Connection = Depends(get_db),
+    settings: ApiSettings = Depends(get_settings),
+) -> list[DomainHealth]:
+    """Per-domain governance health: object count, owner, quality, freshness, backlog.
+
+    Every configured domain is returned even with zero objects, so a domain with
+    no coverage is itself visible.
+    """
+
+    config = load_governance_config(settings.governance_config)
+    rows = domain_analysis.domain_health(conn, config)
+    return [serializers.domain_health(d) for d in rows]
+
+
+@router.get("/domains/{name}", response_model=DomainHealth)
+def domain(
+    name: str,
+    conn: sqlite3.Connection = Depends(get_db),
+    settings: ApiSettings = Depends(get_settings),
+) -> DomainHealth:
+    config = load_governance_config(settings.governance_config)
+    for d in domain_analysis.domain_health(conn, config):
+        if d["domain"].lower() == name.lower():
+            return serializers.domain_health(d)
+    raise not_found("Domain not found", domain=name)
+
+
+@router.get("/changes", response_model=PaginatedResponse[ChangeLogEntry])
+def changes(
+    conn: sqlite3.Connection = Depends(get_db),
+    page: Pagination = Depends(pagination_params),
+    object_id: str | None = Query(None),
+    change_type: str | None = Query(None),
+) -> PaginatedResponse[ChangeLogEntry]:
+    """The governance change-log (audit) feed, newest first."""
+
+    rows, total = gov_repo.change_feed(
+        conn,
+        object_id=object_id,
+        change_type=change_type,
+        limit=page.limit,
+        offset=page.offset,
+    )
+    items = [serializers.change_entry(r) for r in rows]
+    return PaginatedResponse(items=items, limit=page.limit, offset=page.offset, total=total)
+
+
+@router.get("/growth", response_model=GrowthTrend)
+def growth(
+    conn: sqlite3.Connection = Depends(get_db),
+    interval: Literal["day", "week", "month"] = Query("month"),
+    limit: int = Query(12, ge=1, le=365),
+) -> GrowthTrend:
+    """Knowledge-growth trend: per-period new and cumulative counts of artifacts,
+    knowledge objects, and relationships."""
+
+    return GrowthTrend(**know_analytics.growth_trend(conn, interval=interval, limit=limit))
 
 
 @router.get("/quality", response_model=QualityResponse)

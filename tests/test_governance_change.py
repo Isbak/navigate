@@ -44,6 +44,21 @@ def test_first_scan_logs_object_added(governed_db):
     assert "capability_release_governance" in ids
 
 
+def test_change_feed_filters_and_paginates(governed_db):
+    with connect(governed_db) as conn:
+        rows, total = repo.change_feed(conn, limit=2, offset=0)
+        added, added_total = repo.change_feed(conn, change_type="object_added")
+
+    # The first scan logs object_added entries; the feed counts and windows them.
+    assert total >= 1
+    assert len(rows) <= 2
+    # Newest first.
+    assert [r["id"] for r in rows] == sorted((r["id"] for r in rows), reverse=True)
+    # Filtering narrows to one change type and its total matches.
+    assert added_total >= 1
+    assert all(r["change_type"] == "object_added" for r in added)
+
+
 def test_first_scan_logs_relationship_added(governed_db):
     added = _changes(governed_db, "relationship_added")
     assert added

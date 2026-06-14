@@ -1,9 +1,12 @@
 # Knowledge governance rules (Prompt #10).
 #
 # Everything here is configurable: the freshness thresholds, quality weights,
-# drift sensitivity, and the domain -> owner map that domain governance uses.
-# All values fall back to the defaults baked into ``catalog.governance.config``
-# if the file (or any key) is missing, so governance runs out of the box.
+# and drift sensitivity. All values fall back to the defaults baked into
+# ``catalog.governance.config`` if the file (or any key) is missing, so
+# governance runs out of the box.
+#
+# Domains are not configured here: they are discovered from the documents'
+# semantic classifications, like every other object in the catalog.
 
 freshness:
   # Days with no fresh evidence before an object ages out of each state.
@@ -40,20 +43,6 @@ drift:
   terminology_min_documents: 5
   # Confidence movement (in absolute terms) worth recording in the change log.
   min_confidence_delta: 0.05
-
-domains:
-  - name: Digital Transformation
-    owner: Digital Platform Team
-  - name: Architecture
-    owner: Architecture Guild
-  - name: Leadership
-    owner: Executive Team
-  - name: Test & Release
-    owner: Test & Release Team
-  - name: Data
-    owner: Data Team
-  - name: Operations
-    owner: Operations Team
 
 ingestion:
   # Default cadence for ``catalog governance ingest`` (daily | weekly | manual).

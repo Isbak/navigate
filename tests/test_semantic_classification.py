@@ -171,6 +171,36 @@ def test_single_artifact_only(tmp_path):
         assert repo.get_classification(conn, "doc_b") is None
 
 
+def test_classify_ignores_stale_cache_dirs_when_active_artifacts_exist(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    cache = tmp_path / "cache"
+    _write_cache(cache, "doc_active", "active", filename="active.txt")
+    _write_cache(cache, "doc_stale", "stale", filename="stale.txt")
+
+    from catalog.db import init_db
+
+    init_db(db)
+    with connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO artifacts(
+                path, id, filename, file_type, scan_status
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            ("/tmp/active.txt", "doc_active", "active.txt", ".txt", "RAW"),
+        )
+        conn.commit()
+
+    provider = StubProvider()
+    stats = classify_documents(db, cache, provider)
+
+    assert stats.documents_processed == 1
+    assert provider.calls == 1
+    with connect(db) as conn:
+        assert repo.get_classification(conn, "doc_active") is not None
+        assert repo.get_classification(conn, "doc_stale") is None
+
+
 def test_parse_error_counts_as_error_not_crash(tmp_path):
     db = tmp_path / "catalog.sqlite"
     cache = tmp_path / "cache"

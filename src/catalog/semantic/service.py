@@ -73,13 +73,29 @@ class ClassifyStats:
         }
 
 
-def _artifact_dirs(cache_dir: Path, artifact_id: str | None) -> list[Path]:
+def _cache_artifact_dirs(cache_dir: Path, artifact_id: str | None) -> list[Path]:
     if artifact_id is not None:
         candidate = cache_dir / artifact_id
         return [candidate] if (candidate / EXTRACTED_FILENAME).exists() else []
     return sorted(
         p.parent for p in cache_dir.glob(f"*/{EXTRACTED_FILENAME}") if p.is_file()
     )
+
+
+def _active_artifact_ids(conn) -> set[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT id FROM artifacts WHERE scan_status != 'DELETED'"
+    ).fetchall()
+    return {row["id"] for row in rows}
+
+
+def _artifact_dirs(
+    cache_dir: Path, artifact_id: str | None, active_artifact_ids: set[str]
+) -> list[Path]:
+    cache_dirs = _cache_artifact_dirs(cache_dir, artifact_id)
+    if not active_artifact_ids:
+        return cache_dirs
+    return [p for p in cache_dirs if p.name in active_artifact_ids]
 
 
 def _read_metadata(artifact_dir: Path) -> dict:
@@ -166,9 +182,10 @@ def classify_documents(
 
     started_at = _utc_now()
     stats = ClassifyStats()
-    artifact_dirs = _artifact_dirs(cache_path, artifact_id)
-
     with connect(db_path) as conn:
+        artifact_dirs = _artifact_dirs(
+            cache_path, artifact_id, _active_artifact_ids(conn)
+        )
         total_artifacts = len(artifact_dirs)
         for index, artifact_dir in enumerate(artifact_dirs, start=1):
             try:

@@ -353,6 +353,21 @@ class ActionResponse(BaseModel):
     message: str
 
 
+class ConfidenceApprovalRequest(BaseModel):
+    min_confidence: float = Field(ge=0.0, le=1.0)
+    max_confidence: float = Field(ge=0.0, le=1.0)
+    include_reviewed: bool = False
+    note: str = ""
+
+
+class ConfidenceApprovalResponse(BaseModel):
+    min_confidence: float
+    max_confidence: float
+    objects_approved: int = 0
+    relationships_approved: int = 0
+    message: str
+
+
 __all__ = [
     "PaginatedResponse",
     "ErrorResponse",
@@ -389,4 +404,6 @@ __all__ = [
     "AskRequest",
     "AskResponse",
     "ActionResponse",
+    "ConfidenceApprovalRequest",
+    "ConfidenceApprovalResponse",
 ]

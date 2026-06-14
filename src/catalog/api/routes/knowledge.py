@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...governance import service as gov_service
 from ...knowledge import repository as know_repo
@@ -16,6 +16,8 @@ from ..errors import not_found
 from ..pagination import Pagination, pagination_params
 from ..schemas import (
     ActionResponse,
+    ConfidenceApprovalRequest,
+    ConfidenceApprovalResponse,
     Evidence,
     KnowledgeObject,
     Mention,
@@ -54,6 +56,14 @@ def list_objects(
     return PaginatedResponse(
         items=items, limit=page.limit, offset=page.offset, total=total
     )
+
+
+@router.post("/approve-confidence", response_model=ConfidenceApprovalResponse)
+def approve_objects_by_confidence(
+    request: ConfidenceApprovalRequest,
+    settings: ApiSettings = Depends(get_settings),
+) -> ConfidenceApprovalResponse:
+    return _approve_by_confidence(settings, request)
 
 
 @router.get("/{object_id}", response_model=KnowledgeObject)
@@ -120,6 +130,34 @@ def archive_object(
     settings: ApiSettings = Depends(get_settings),
 ) -> ActionResponse:
     return _review(settings, object_id, gov_service.archive_object, "ARCHIVED")
+
+
+def _approve_by_confidence(
+    settings: ApiSettings, request: ConfidenceApprovalRequest
+) -> ConfidenceApprovalResponse:
+    if request.min_confidence > request.max_confidence:
+        raise HTTPException(
+            status_code=400,
+            detail="min_confidence must be less than or equal to max_confidence",
+        )
+    statuses = ["PROPOSED"] + (["REVIEWED"] if request.include_reviewed else [])
+    approved = 0
+    for status in statuses:
+        stats = gov_service.approve_objects_by_confidence(
+            settings.db_path,
+            request.min_confidence,
+            request.max_confidence,
+            reviewer="api",
+            note=request.note,
+            current_status=status,
+        )
+        approved += stats.objects_approved
+    return ConfidenceApprovalResponse(
+        min_confidence=request.min_confidence,
+        max_confidence=request.max_confidence,
+        objects_approved=approved,
+        message=f"Approved {approved} objects",
+    )
 
 
 def _review(settings, object_id, action, label) -> ActionResponse:

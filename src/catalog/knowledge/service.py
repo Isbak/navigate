@@ -54,6 +54,27 @@ _PRESERVED_STATUSES = {
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+@dataclass
+class BulkApprovalStats:
+    """Counters for approving knowledge graph rows by confidence interval."""
+
+    objects_approved: int = 0
+    relationships_approved: int = 0
+
+    def as_dict(self) -> dict:
+        return {
+            "objects_approved": self.objects_approved,
+            "relationships_approved": self.relationships_approved,
+        }
+
+
+def _validate_confidence_interval(min_confidence: float, max_confidence: float) -> None:
+    if not 0.0 <= min_confidence <= 1.0:
+        raise ValueError("min_confidence must be between 0.0 and 1.0")
+    if not 0.0 <= max_confidence <= 1.0:
+        raise ValueError("max_confidence must be between 0.0 and 1.0")
+    if min_confidence > max_confidence:
+        raise ValueError("min_confidence must be less than or equal to max_confidence")
 
 @dataclass
 class ConsolidationStats:
@@ -134,7 +155,6 @@ def _resolve_endpoint(
         if score > best_score:
             best_id, best_score = candidate_id, score
     return best_id if best_score >= config.auto_merge_threshold else None
-
 
 @dataclass
 class _ResolvedRel:
@@ -442,9 +462,49 @@ def review_relationship(
     return changed
 
 
+def approve_relationships_by_confidence(
+    db_path: str | Path,
+    min_confidence: float,
+    max_confidence: float,
+    *,
+    reviewer: str = "cli",
+    note: str = "",
+    current_status: str = ReviewState.PROPOSED.value,
+) -> BulkApprovalStats:
+    """Approve relationships with confidence inside an inclusive interval."""
+
+    _validate_confidence_interval(min_confidence, max_confidence)
+    init_db(db_path)
+    stats = BulkApprovalStats()
+    now = _utc_now()
+    with connect(db_path) as conn:
+        rows = repo.relationships_in_confidence_interval(
+            conn, min_confidence, max_confidence, review_status=current_status
+        )
+        for row in rows:
+            if repo.set_relationship_status(
+                conn, row["id"], ReviewState.APPROVED.value, now
+            ):
+                repo.record_review(
+                    conn,
+                    target_kind="relationship",
+                    target_id=str(row["id"]),
+                    action=ReviewState.APPROVED.value,
+                    confidence=row["confidence"],
+                    note=note,
+                    reviewer=reviewer,
+                    created_at=now,
+                )
+                stats.relationships_approved += 1
+        conn.commit()
+    return stats
+
+
 __all__ = [
+    "BulkApprovalStats",
     "ConsolidationStats",
     "consolidate",
     "review_object",
     "review_relationship",
+    "approve_relationships_by_confidence",
 ]

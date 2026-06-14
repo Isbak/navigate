@@ -45,7 +45,6 @@ _QUALITY_DROP_POINTS = 5.0
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
 @dataclass
 class GovernanceScanStats:
     objects_seen: int = 0
@@ -72,6 +71,24 @@ class GovernanceScanStats:
             "quality_degradations": self.quality_degradations,
             "alerts_generated": self.alerts_generated,
         }
+
+@dataclass
+class BulkObjectApprovalStats:
+    """Counters for confidence-interval object approval."""
+
+    objects_approved: int = 0
+
+    def as_dict(self) -> dict:
+        return {"objects_approved": self.objects_approved}
+
+
+def _validate_confidence_interval(min_confidence: float, max_confidence: float) -> None:
+    if not 0.0 <= min_confidence <= 1.0:
+        raise ValueError("min_confidence must be between 0.0 and 1.0")
+    if not 0.0 <= max_confidence <= 1.0:
+        raise ValueError("max_confidence must be between 0.0 and 1.0")
+    if min_confidence > max_confidence:
+        raise ValueError("min_confidence must be less than or equal to max_confidence")
 
 
 def run_scan(
@@ -428,6 +445,30 @@ def approve_object(
         note=note,
         confirmed=True,
     )
+
+
+def approve_objects_by_confidence(
+    db_path: str | Path,
+    min_confidence: float,
+    max_confidence: float,
+    *,
+    reviewer: str = "cli",
+    note: str = "",
+    current_status: str = "PROPOSED",
+) -> BulkObjectApprovalStats:
+    """Approve objects with confidence inside an inclusive interval."""
+
+    _validate_confidence_interval(min_confidence, max_confidence)
+    init_db(db_path)
+    stats = BulkObjectApprovalStats()
+    with connect(db_path) as conn:
+        rows = know_repo.objects_in_confidence_interval(
+            conn, min_confidence, max_confidence, status=current_status
+        )
+    for row in rows:
+        if approve_object(db_path, row["id"], reviewer=reviewer, note=note):
+            stats.objects_approved += 1
+    return stats
 
 
 def archive_object(

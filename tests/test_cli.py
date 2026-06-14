@@ -133,3 +133,34 @@ def test_knowledge_growth_command(governed_db, capsys):
     out = capsys.readouterr().out
     assert "Knowledge growth (by month):" in out
     assert "objects +" in out
+
+
+def test_approve_confidence_interval_command(governed_db, capsys):
+    from catalog.db import connect
+
+    with connect(governed_db) as conn:
+        conn.execute("UPDATE knowledge_objects SET status = 'PROPOSED'")
+        conn.execute("UPDATE knowledge_relationships SET review_status = 'PROPOSED'")
+        conn.commit()
+
+    assert main([
+        "--db",
+        governed_db,
+        "approve-confidence-interval",
+        "--min-confidence",
+        "0.0",
+        "--max-confidence",
+        "1.0",
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "Approved by confidence interval [0.00, 1.00]" in out
+    assert "Objects approved:" in out
+    assert "Relationships approved:" in out
+
+    with connect(governed_db) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM knowledge_objects WHERE status = 'APPROVED'"
+        ).fetchone()[0] > 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM knowledge_relationships WHERE review_status = 'APPROVED'"
+        ).fetchone()[0] > 0

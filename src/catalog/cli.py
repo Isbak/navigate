@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .db import connect, init_db, latest_scan_run
 from .extraction import extract_all
+from .governance import service as gov_service
 from .governance.cli import add_governance_parser, run_governance
 from .graph.cli import add_graph_parser, run_graph
 from .graphrag.cli import add_graphrag_parsers, run_graphrag
@@ -19,7 +20,12 @@ from .knowledge import repository as know_repo
 from .knowledge.export import export_graph_json
 from .knowledge.models import ReviewState
 from .knowledge.prompts import make_merge_judge
-from .knowledge.service import consolidate, review_object, review_relationship
+from .knowledge.service import (
+    approve_relationships_by_confidence,
+    consolidate,
+    review_object,
+    review_relationship,
+)
 from .rdf.config import load_jena_config
 from .rdf.export import DEFAULT_OUT_DIR as RDF_OUT_DIR
 from .rdf.export import FORMATS as RDF_FORMATS
@@ -139,6 +145,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     approve_rel = sub.add_parser("approve-relationship")
     approve_rel.add_argument("relationship_id", type=int)
+
+    approve_interval = sub.add_parser("approve-confidence-interval")
+    approve_interval.add_argument("--min-confidence", type=float, required=True)
+    approve_interval.add_argument("--max-confidence", type=float, required=True)
+    approve_interval.add_argument(
+        "--target", choices=("objects", "relationships", "all"), default="all"
+    )
+    approve_interval.add_argument(
+        "--include-reviewed",
+        action="store_true",
+        help="also approve rows that are already in a REVIEWED state",
+    )
+    approve_interval.add_argument("--note", default="")
 
     reject_rel = sub.add_parser("reject-relationship")
     reject_rel.add_argument("relationship_id", type=int)
@@ -702,6 +721,51 @@ def _cmd_review_relationship(args, status: str) -> None:
         print(f"No knowledge relationship with id {args.relationship_id!r}.")
 
 
+def _cmd_approve_confidence_interval(args) -> None:
+    init_db(args.db)
+    object_statuses = [ReviewState.PROPOSED.value]
+    relationship_statuses = [ReviewState.PROPOSED.value]
+    if args.include_reviewed:
+        object_statuses.append(ReviewState.REVIEWED.value)
+        relationship_statuses.append(ReviewState.REVIEWED.value)
+
+    objects_approved = 0
+    relationships_approved = 0
+    try:
+        if args.target in {"objects", "all"}:
+            for status in object_statuses:
+                stats = gov_service.approve_objects_by_confidence(
+                    args.db,
+                    args.min_confidence,
+                    args.max_confidence,
+                    reviewer="cli",
+                    note=args.note,
+                    current_status=status,
+                )
+                objects_approved += stats.objects_approved
+        if args.target in {"relationships", "all"}:
+            for status in relationship_statuses:
+                stats = approve_relationships_by_confidence(
+                    args.db,
+                    args.min_confidence,
+                    args.max_confidence,
+                    reviewer="cli",
+                    note=args.note,
+                    current_status=status,
+                )
+                relationships_approved += stats.relationships_approved
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return
+
+    print(
+        "Approved by confidence interval "
+        f"[{args.min_confidence:.2f}, {args.max_confidence:.2f}]:"
+    )
+    print(f"  Objects approved: {_fmt(objects_approved)}")
+    print(f"  Relationships approved: {_fmt(relationships_approved)}")
+
+
 def _cmd_export_graph_json(args) -> None:
     init_db(args.db)
     with connect(args.db) as conn:
@@ -855,6 +919,8 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_review_object(args, ReviewState.REJECTED.value)
     elif args.command == "approve-relationship":
         _cmd_review_relationship(args, ReviewState.APPROVED.value)
+    elif args.command == "approve-confidence-interval":
+        _cmd_approve_confidence_interval(args)
     elif args.command == "reject-relationship":
         _cmd_review_relationship(args, ReviewState.REJECTED.value)
     elif args.command == "export-graph-json":

@@ -400,6 +400,28 @@ def objects_by_status(conn: sqlite3.Connection, status: str) -> list[sqlite3.Row
     ).fetchall()
 
 
+def objects_in_confidence_interval(
+    conn: sqlite3.Connection,
+    min_confidence: float,
+    max_confidence: float,
+    *,
+    status: str | None = None,
+) -> list[sqlite3.Row]:
+    """Return objects whose confidence falls in the inclusive interval."""
+
+    where = ["confidence >= ?", "confidence <= ?"]
+    params: list[object] = [min_confidence, max_confidence]
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    return conn.execute(
+        "SELECT * FROM knowledge_objects WHERE "
+        + " AND ".join(where)
+        + " ORDER BY confidence DESC, canonical_name",
+        params,
+    ).fetchall()
+
+
 def object_type_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT object_type AS key, COUNT(*) AS count "
@@ -447,6 +469,28 @@ def relationships_by_status(
         "SELECT * FROM knowledge_relationships WHERE review_status = ? "
         "ORDER BY confidence DESC",
         (status,),
+    ).fetchall()
+
+
+def relationships_in_confidence_interval(
+    conn: sqlite3.Connection,
+    min_confidence: float,
+    max_confidence: float,
+    *,
+    review_status: str | None = None,
+) -> list[sqlite3.Row]:
+    """Return relationships whose confidence falls in the inclusive interval."""
+
+    where = ["confidence >= ?", "confidence <= ?"]
+    params: list[object] = [min_confidence, max_confidence]
+    if review_status:
+        where.append("review_status = ?")
+        params.append(review_status)
+    return conn.execute(
+        "SELECT * FROM knowledge_relationships WHERE "
+        + " AND ".join(where)
+        + " ORDER BY confidence DESC, id",
+        params,
     ).fetchall()
 
 
@@ -519,12 +563,14 @@ __all__ = [
     "all_objects",
     "search_objects",
     "objects_by_status",
+    "objects_in_confidence_interval",
     "object_type_counts",
     "mentions_for_object",
     "evidence_for_object",
     "relationships_for_object",
     "all_relationships",
     "relationships_by_status",
+    "relationships_in_confidence_interval",
     "approved_objects",
     "approved_relationships",
     "evidence_for_approved_objects",

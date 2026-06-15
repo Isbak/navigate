@@ -1047,6 +1047,34 @@ data. `config/` and `queries/` are mounted from the host so you can edit them
 without rebuilding. The optional Fuseki triplestore is a separate service
 (`docker compose up fuseki`).
 
+**File permissions (write access to the SQLite DB).** The API does not only read
+the database — review actions such as approving knowledge objects and
+relationships **write** to `data/catalog.sqlite`, and SQLite needs write access
+to both the file and the `data/` directory (for its journal/WAL and lock files).
+Because `data/` is a host bind mount, the container process must own (or be able
+to write) those host files. If it cannot, reads still succeed but every write
+fails with `sqlite3.OperationalError: attempt to write a readonly database` — a
+`500` from the API, which a reverse proxy in front of it reports as a **502 Bad
+Gateway**. Two ways to give the container write access:
+
+- **Run the container as your host user (recommended)** so it writes as the
+  owner of `./data` and the CLI stays usable without `sudo`. The `api` service
+  reads `NAVIGATE_UID`/`NAVIGATE_GID`:
+
+  ```bash
+  NAVIGATE_UID=$(id -u) NAVIGATE_GID=$(id -g) docker compose up -d api
+  ```
+
+- **Or hand the data to the image's built-in user** (`navigate`, uid 10001),
+  which is the default when `NAVIGATE_UID`/`GID` are unset:
+
+  ```bash
+  sudo chown -R 10001:10001 ./data ./cache
+  docker compose up -d api
+  ```
+
+  (After this, host CLI writes to the DB may need `sudo`.)
+
 Inside the container the server binds to `0.0.0.0`, but compose publishes the
 port only to the host loopback (`127.0.0.1:8000:8000`), so the API stays
 local-first and is **not** exposed externally by default — change the published

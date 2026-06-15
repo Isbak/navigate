@@ -98,16 +98,14 @@ def alerts(
 @router.get("/domains", response_model=list[DomainHealth])
 def domains(
     conn: sqlite3.Connection = Depends(get_db),
-    settings: ApiSettings = Depends(get_settings),
 ) -> list[DomainHealth]:
-    """Per-domain governance health: object count, owner, quality, freshness, backlog.
+    """Per-domain governance health: object count, quality, freshness, backlog.
 
-    Every configured domain is returned even with zero objects, so a domain with
-    no coverage is itself visible.
+    Domains are discovered from the data: a domain appears once a classified
+    document mentions a knowledge object, with no predefined list.
     """
 
-    config = load_governance_config(settings.governance_config)
-    rows = domain_analysis.domain_health(conn, config)
+    rows = domain_analysis.domain_health(conn)
     return [serializers.domain_health(d) for d in rows]
 
 
@@ -115,10 +113,8 @@ def domains(
 def domain(
     name: str,
     conn: sqlite3.Connection = Depends(get_db),
-    settings: ApiSettings = Depends(get_settings),
 ) -> DomainHealth:
-    config = load_governance_config(settings.governance_config)
-    for d in domain_analysis.domain_health(conn, config):
+    for d in domain_analysis.domain_health(conn):
         if d["domain"].lower() == name.lower():
             return serializers.domain_health(d)
     raise not_found("Domain not found", domain=name)

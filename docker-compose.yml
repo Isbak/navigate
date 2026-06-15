@@ -16,6 +16,10 @@ services:
     environment:
       NAVIGATE_DB: /data/catalog.sqlite
       NAVIGATE_CACHE: /data/cache
+      # LLM provider credentials are not baked into the image; forward them from
+      # the host (or a .env file Compose reads automatically). Empty default so
+      # the API still starts when classification/GraphRAG are disabled.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       # Share the workspace SQLite index and cache with the container so API
       # and local CLI commands see the same data.

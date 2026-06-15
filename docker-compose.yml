@@ -1,6 +1,14 @@
 services:
   api:
     build: .
+    # Run as the host user that owns the bind-mounted ./data so the API can
+    # WRITE the SQLite index (review/approve actions), not just read it. SQLite
+    # needs write access to both the database file and its directory. Defaults to
+    # the image's built-in "navigate" user (uid 10001); override to match the
+    # owner of ./data, e.g. `NAVIGATE_UID=$(id -u) NAVIGATE_GID=$(id -g) docker
+    # compose up -d api`. A mismatch surfaces as "attempt to write a readonly
+    # database" (a 500, or a 502 behind a reverse proxy).
+    user: "${NAVIGATE_UID:-10001}:${NAVIGATE_GID:-10001}"
     # Publish ONLY to the host loopback so the API is not exposed externally by
     # default (local-first). Change the left-hand address to share it.
     ports:

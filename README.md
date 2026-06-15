@@ -1080,6 +1080,22 @@ port only to the host loopback (`127.0.0.1:8000:8000`), so the API stays
 local-first and is **not** exposed externally by default — change the published
 address yourself (and enable `require_api_key`) if you intend to share it.
 
+LLM credentials are not baked into the image. The `api` service forwards
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from the host environment, which Docker
+Compose also reads from a `.env` file in the project directory. Only the
+provider selected in `config/llm.yml` needs a key. So to enable Claude
+classification or GraphRAG (the default provider) in the container, set its key
+in `.env`:
+
+```bash
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env   # or OPENAI_API_KEY=sk-... for provider: openai
+docker compose up --build api
+```
+
+Keys are never written to the image or committed (`.env` is git-ignored). For a
+one-off run you can pass one directly:
+`ANTHROPIC_API_KEY=sk-ant-... docker compose run -e ANTHROPIC_API_KEY api`.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without

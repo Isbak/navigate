@@ -1,0 +1,54 @@
+# Curated catalog for ISO/IEC 27001:2022 (illustrative excerpt).
+#
+# Import with:  catalog compliance import config/standards/iso27001.yml
+# then:         catalog consolidate && catalog compliance assess
+#
+# This is a trimmed teaching sample - a handful of Annex A controls - not the
+# full standard. Extend it (or add config/standards/<framework>.yml files) with
+# the clauses you need to track.
+
+standard:
+  name: ISO 27001
+  version: "2022"
+  authority: ISO/IEC
+  jurisdiction: International
+
+requirements:
+  - clause_ref: A.5.1
+    title: Policies for information security
+    text: >-
+      Information security policy and topic-specific policies shall be defined,
+      approved by management, published, communicated to and acknowledged by
+      relevant personnel and relevant interested parties.
+    obligation_level: MANDATORY
+
+  - clause_ref: A.5.15
+    title: Access control
+    text: >-
+      Rules to control physical and logical access to information and other
+      associated assets shall be established and implemented based on business
+      and information security requirements.
+    obligation_level: MANDATORY
+
+  - clause_ref: A.8.5
+    title: Secure authentication
+    text: >-
+      Secure authentication technologies and procedures shall be implemented
+      based on information access restrictions and the topic-specific policy on
+      access control.
+    obligation_level: MANDATORY
+
+  - clause_ref: A.8.13
+    title: Information backup
+    text: >-
+      Backup copies of information, software and systems shall be maintained and
+      regularly tested in accordance with the agreed topic-specific policy on
+      backup.
+    obligation_level: MANDATORY
+
+  - clause_ref: A.8.24
+    title: Use of cryptography
+    text: >-
+      Rules for the effective use of cryptography, including cryptographic key
+      management, shall be defined and implemented.
+    obligation_level: MANDATORY

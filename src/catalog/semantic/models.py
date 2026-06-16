@@ -60,8 +60,13 @@ DOCUMENT_TYPES = (
     "Technical Design",
     "Operating Model",
     "Training",
+    "Standard",
+    "Regulation",
     "Other",
 )
+
+# Document types whose normative clauses we mine into candidate requirements.
+STANDARD_DOCUMENT_TYPES = ("Standard", "Regulation", "Governance")
 
 ENTITY_TYPES = (
     "Capability",
@@ -74,7 +79,13 @@ ENTITY_TYPES = (
     "Concept",
     "Decision",
     "Risk",
+    "Standard",
+    "Requirement",
 )
+
+# The obligation strength a requirement carries; unknown values normalize to
+# MANDATORY (the safe default for an unclassified normative clause).
+OBLIGATION_LEVELS = ("MANDATORY", "RECOMMENDED", "OPTIONAL")
 
 RELATIONSHIP_PREDICATES = (
     "supports",
@@ -85,6 +96,9 @@ RELATIONSHIP_PREDICATES = (
     "affects",
     "owned_by",
     "related_to",
+    "mandated_by",
+    "satisfies",
+    "supersedes",
 )
 
 
@@ -135,6 +149,26 @@ class CandidateRelationship:
 
 
 @dataclass(frozen=True)
+class CandidateRequirement:
+    """One normative clause mined from a standard/regulation/policy document.
+
+    ``standard_name`` is the standard the clause belongs to (e.g. "GDPR",
+    "ISO 27001"); ``clause_ref`` is its locator within that standard (e.g.
+    "Art. 32", "A.8.24"). The clause becomes a ``Requirement`` knowledge object
+    and the standard a ``Standard`` object during consolidation.
+    """
+
+    clause_ref: str
+    title: str
+    text: str
+    standard_name: str = ""
+    standard_version: str = ""
+    obligation_level: str = "MANDATORY"
+    confidence: float = 0.0
+    supporting_text: str = ""
+
+
+@dataclass(frozen=True)
 class ClassificationResult:
     """Everything the LLM proposed for one document."""
 
@@ -148,13 +182,16 @@ class ClassificationResult:
     decisions: list[CandidateDecision] = field(default_factory=list)
     risks: list[CandidateRisk] = field(default_factory=list)
     relationships: list[CandidateRelationship] = field(default_factory=list)
+    requirements: list[CandidateRequirement] = field(default_factory=list)
 
 
 __all__ = [
     "KnowledgeType",
     "ReviewStatus",
     "DOCUMENT_TYPES",
+    "STANDARD_DOCUMENT_TYPES",
     "ENTITY_TYPES",
+    "OBLIGATION_LEVELS",
     "RELATIONSHIP_PREDICATES",
     "DomainScore",
     "CandidateEntity",
@@ -162,5 +199,6 @@ __all__ = [
     "CandidateDecision",
     "CandidateRisk",
     "CandidateRelationship",
+    "CandidateRequirement",
     "ClassificationResult",
 ]

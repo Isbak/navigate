@@ -52,6 +52,9 @@ PREDICATE_MAP = {
     "affects": "affects",
     "owned_by": "ownedBy",
     "related_to": "relatedTo",
+    "mandated_by": "mandatedBy",
+    "satisfies": "satisfies",
+    "supersedes": "supersedes",
 }
 
 # Provenance links a knowledge object to the evidence that supports it.

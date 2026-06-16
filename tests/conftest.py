@@ -139,3 +139,68 @@ def governed_db(tmp_path) -> str:
     consolidate(db)
     run_scan(db, load_governance_config("config/governance.yml"))
     return db
+
+
+# -- compliance fixtures ------------------------------------------------------
+
+def _seed_compliance_candidates(conn) -> None:
+    """Seed two GDPR requirements and one control that satisfies one of them.
+
+    GDPR Art. 32 is satisfied by the "Encryption at rest" capability (with
+    evidence); GDPR Art. 30 has no satisfying control, so it is an open gap.
+    """
+
+    def requirement(clause, title, text, standard="GDPR", version="2016"):
+        conn.execute(
+            "INSERT INTO candidate_requirements(artifact_id, standard_name, "
+            "standard_version, clause_ref, title, requirement_text, obligation_level, "
+            "confidence, supporting_text, knowledge_type, review_status, model, created_at) "
+            "VALUES('imp', ?, ?, ?, ?, ?, 'MANDATORY', 0.95, ?, 'OBSERVATION', 'NEW', "
+            "'curated_import', 't')",
+            (standard, version, clause, title, text, text),
+        )
+
+    requirement("Art. 32", "Security of processing",
+                "The controller shall implement appropriate technical measures.")
+    requirement("Art. 30", "Records of processing activities",
+                "Each controller shall maintain a record of processing activities.")
+    conn.execute(
+        "INSERT INTO candidate_capabilities(artifact_id, name, confidence, "
+        "supporting_text, knowledge_type, review_status, model, created_at) "
+        "VALUES('doc_c', 'Encryption at rest', 0.92, "
+        "'all data is encrypted at rest with AES-256', 'OBSERVATION', 'NEW', 'stub', 't')",
+    )
+    conn.execute(
+        "INSERT INTO candidate_relationships(artifact_id, subject, predicate, object, "
+        "confidence, supporting_text, review_status, model, created_at) "
+        "VALUES('doc_c', 'Encryption at rest', 'satisfies', 'GDPR Art. 32', 0.9, "
+        "'encryption satisfies the security requirement', 'NEW', 'stub', 't')",
+    )
+
+
+@pytest.fixture
+def compliance_db(tmp_path) -> str:
+    """A consolidated graph with a standard, requirements, and an approved control.
+
+    The "Encryption at rest" control object and its ``satisfies`` edge are
+    APPROVED so the engine can reach a SATISFIED status for GDPR Art. 32; the
+    assessment itself is left PROPOSED for the test to approve.
+    """
+
+    db = str(tmp_path / "catalog.sqlite")
+    init_db(db)
+    with connect(db) as conn:
+        _seed_compliance_candidates(conn)
+        conn.commit()
+    consolidate(db)
+    with connect(db) as conn:
+        conn.execute(
+            "UPDATE knowledge_objects SET status='APPROVED' "
+            "WHERE id='capability_encryption_at_rest'"
+        )
+        conn.execute(
+            "UPDATE knowledge_relationships SET review_status='APPROVED' "
+            "WHERE predicate='satisfies'"
+        )
+        conn.commit()
+    return db

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from .ids import requirement_display_name
 from .models import RawMention, ReviewState
 
 # (semantic table, object_type, name column) tuples that feed consolidation.
@@ -82,7 +83,63 @@ def gather_mentions(
         )
         for r in entity_rows
     )
+
+    # Compliance: each candidate requirement yields a Requirement mention (named
+    # by its standard + clause locator) and, when a standard is named, a Standard
+    # mention - so both become first-class knowledge objects the rest of the
+    # pipeline scores, governs, and projects to RDF like any other.
+    for r in gather_candidate_requirements(conn, min_confidence):
+        conf = r["confidence"] if r["confidence"] is not None else 0.0
+        evidence = (r["supporting_text"] or r["requirement_text"] or "").strip()
+        req_name = requirement_display_name(
+            r["standard_name"] or "", r["clause_ref"] or "", r["title"] or ""
+        )
+        out.append(
+            RawMention(
+                object_type="Requirement",
+                name=req_name,
+                artifact_id=r["artifact_id"],
+                confidence=conf,
+                source_text=evidence or req_name,
+            )
+        )
+        standard_name = (r["standard_name"] or "").strip()
+        if standard_name:
+            out.append(
+                RawMention(
+                    object_type="Standard",
+                    name=standard_name,
+                    artifact_id=r["artifact_id"],
+                    confidence=conf,
+                    source_text=(r["standard_version"] and f"{standard_name} {r['standard_version']}") or standard_name,
+                )
+            )
     return out
+
+
+def gather_candidate_requirements(
+    conn: sqlite3.Connection, min_confidence: float = 0.0
+) -> list[sqlite3.Row]:
+    """Read candidate requirement clauses (LLM-mined or curated import).
+
+    REJECTED proposals are skipped; a row needs at least a clause ref or some
+    requirement text to be usable.
+    """
+
+    return conn.execute(
+        """
+        SELECT artifact_id, standard_name, standard_version, clause_ref, title,
+               requirement_text, obligation_level, confidence, supporting_text
+        FROM candidate_requirements
+        WHERE confidence >= ? AND review_status != ?
+          AND (
+            (clause_ref IS NOT NULL AND TRIM(clause_ref) != '')
+            OR (requirement_text IS NOT NULL AND TRIM(requirement_text) != '')
+            OR (title IS NOT NULL AND TRIM(title) != '')
+          )
+        """,
+        (min_confidence, ReviewState.REJECTED.value),
+    ).fetchall()
 
 
 def gather_candidate_relationships(

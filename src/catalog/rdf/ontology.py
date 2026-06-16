@@ -18,7 +18,7 @@ from rdflib.namespace import OWL, RDF, RDFS, XSD
 from ..knowledge.models import OBJECT_TYPES
 from .namespaces import KG, PREDICATE_MAP, SUPPORTED_BY, bind_namespaces
 
-# Human-friendly labels and comments for the ten object classes.
+# Human-friendly labels and comments for the object classes.
 _CLASS_COMMENTS = {
     "Capability": "A business or technical capability the organization possesses.",
     "Initiative": "A program or effort directed at a goal.",
@@ -30,6 +30,8 @@ _CLASS_COMMENTS = {
     "Decision": "A recorded decision and its rationale.",
     "Risk": "A risk, threat, or concern.",
     "Process": "A repeatable process or workflow.",
+    "Standard": "A standard, regulation, or policy family that states obligations.",
+    "Requirement": "A normative clause, article, or control of a standard.",
 }
 
 # Relationship predicate -> (label, comment). Keyed by the camelCase ontology
@@ -43,6 +45,9 @@ _PREDICATE_COMMENTS = {
     "ownedBy": "The subject is owned by the object.",
     "mentions": "The subject mentions the object.",
     "references": "The subject references the object.",
+    "mandatedBy": "The subject requirement is mandated by the object standard.",
+    "satisfies": "The subject control satisfies the object requirement.",
+    "supersedes": "The subject supersedes the object it replaces.",
 }
 
 

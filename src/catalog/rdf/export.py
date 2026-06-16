@@ -62,15 +62,47 @@ def _confidence_literal(value) -> Literal:
     return Literal(Decimal(str(conf)))
 
 
+def _compliance_maps(
+    conn: sqlite3.Connection,
+) -> tuple[dict[str, sqlite3.Row], dict[str, str]]:
+    """Return (requirement metadata, approved compliance status) by object id.
+
+    Both are empty when the compliance tables hold nothing, so the projection is
+    unaffected for knowledge bases that do not use the compliance layer.
+    """
+
+    meta = {
+        row["object_id"]: row
+        for row in conn.execute(
+            "SELECT object_id, clause_ref, obligation_level FROM compliance_requirements"
+        )
+    }
+    # Project the strongest APPROVED assessment status per requirement.
+    _RANK = {"SATISFIED": 3, "PARTIAL": 2, "GAP": 1, "NOT_APPLICABLE": 1}
+    status: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT requirement_object_id AS rid, status FROM compliance_assessments "
+        "WHERE review_status = 'APPROVED'"
+    ):
+        current = status.get(row["rid"])
+        if current is None or _RANK.get(row["status"], 0) > _RANK.get(current, 0):
+            status[row["rid"]] = row["status"]
+    return meta, status
+
+
 def build_knowledge_graph(conn: sqlite3.Connection) -> Graph:
     """One RDF resource per APPROVED knowledge object.
 
     Each object gets ``rdf:type`` of its class, an ``rdfs:label`` (the canonical
     name), ``kg:confidence``, and an ``rdfs:comment`` description when present.
+    Requirement objects additionally carry their ``kg:clauseRef``,
+    ``kg:obligationLevel``, and (when a human has approved an assessment)
+    ``kg:complianceStatus``.
     """
 
     g = Graph()
     bind_namespaces(g)
+    req_meta, status_map = _compliance_maps(conn)
     for row in repo.approved_objects(conn):
         subject = object_uri(row["object_type"], row["id"])
         g.add((subject, RDF.type, class_uri(row["object_type"])))
@@ -78,6 +110,14 @@ def build_knowledge_graph(conn: sqlite3.Connection) -> Graph:
         g.add((subject, KG["confidence"], _confidence_literal(row["confidence"])))
         if row["description"]:
             g.add((subject, RDFS.comment, Literal(row["description"])))
+        meta = req_meta.get(row["id"])
+        if meta is not None:
+            if meta["clause_ref"]:
+                g.add((subject, KG["clauseRef"], Literal(meta["clause_ref"])))
+            if meta["obligation_level"]:
+                g.add((subject, KG["obligationLevel"], Literal(meta["obligation_level"])))
+        if row["id"] in status_map:
+            g.add((subject, KG["complianceStatus"], Literal(status_map[row["id"]])))
     return g
 
 

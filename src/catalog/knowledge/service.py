@@ -28,7 +28,7 @@ from typing import Callable
 
 from ..db import connect, init_db
 from . import repository as repo
-from .ids import object_id
+from .ids import object_id, requirement_display_name
 from .models import Cluster, ReviewState
 from .resolution import (
     ResolutionConfig,
@@ -191,6 +191,45 @@ def _resolve_relationships(
     return resolved
 
 
+def _add_mandated_by_relationships(
+    conn,
+    resolved: dict[tuple[str, str, str], _ResolvedRel],
+    exact: dict[str, str],
+    canonical: list[tuple[str, str]],
+    config: ResolutionConfig,
+) -> None:
+    """Link each Requirement object to the Standard that mandates it.
+
+    The requirement->standard edge is not a free-text candidate relationship; it
+    is implied by the ``candidate_requirements`` rows. Both endpoints resolve
+    through the same name index the other relationships use, so a ``mandated_by``
+    edge is only added when both objects actually exist.
+    """
+
+    rows = repo.gather_candidate_requirements(conn, config.min_mention_confidence)
+    for row in rows:
+        standard_name = (row["standard_name"] or "").strip()
+        if not standard_name:
+            continue
+        req_name = requirement_display_name(
+            row["standard_name"] or "", row["clause_ref"] or "", row["title"] or ""
+        )
+        src = _resolve_endpoint(req_name, exact, canonical, config)
+        tgt = _resolve_endpoint(standard_name, exact, canonical, config)
+        if src is None or tgt is None or src == tgt:
+            continue
+        key = (src, "mandated_by", tgt)
+        conf = row["confidence"] if row["confidence"] is not None else 0.0
+        entry = resolved.get(key)
+        if entry is None:
+            entry = _ResolvedRel(confidence=conf, quotes=[])
+            resolved[key] = entry
+        entry.confidence = max(entry.confidence, conf)
+        quote = (row["supporting_text"] or row["requirement_text"] or "").strip()
+        if quote and len(entry.quotes) < _EVIDENCE_QUOTES_PER_RELATIONSHIP:
+            entry.quotes.append({"artifact_id": row["artifact_id"], "quote": quote})
+
+
 def _object_description(cluster: Cluster) -> str:
     """Use the most informative supporting quote as a representative description."""
 
@@ -324,6 +363,8 @@ def consolidate(
         resolved_rels = _resolve_relationships(
             candidate_rows, exact, canonical, config, stats
         )
+        # Compliance: add the implied Requirement -> Standard ``mandated_by`` edges.
+        _add_mandated_by_relationships(conn, resolved_rels, exact, canonical, config)
 
         rel_total: dict[str, int] = {}
         rel_rejected: dict[str, int] = {}
@@ -381,6 +422,15 @@ def consolidate(
                 created_at=now,
             )
             stats.relationships_created += 1
+
+        # Enrich the compliance metadata tables (clause refs, versions, standard
+        # links) for any Standard/Requirement objects just (re)built. Imported
+        # lazily: the compliance layer depends on this module's id helpers, so a
+        # top-level import would be a cycle. The compliance tables are curated and
+        # survive a consolidate; this only refreshes them from current candidates.
+        from ..compliance.sync import sync_requirements
+
+        sync_requirements(conn, now)
 
         conn.commit()
 

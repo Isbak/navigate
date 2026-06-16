@@ -38,9 +38,11 @@ class ReviewState(str, Enum):
         return self.value
 
 
-# The ten object types a knowledge object may take. This is a superset of the
+# The object types a knowledge object may take. This is a superset of the
 # semantic layer's ENTITY_TYPES (which already aligns with these names) plus the
-# Capability/Decision/Risk kinds that arrive from their own candidate tables.
+# Capability/Decision/Risk kinds that arrive from their own candidate tables, and
+# the compliance layer's Standard/Requirement kinds that arrive from
+# ``candidate_requirements``.
 OBJECT_TYPES = (
     "Capability",
     "Initiative",
@@ -52,10 +54,15 @@ OBJECT_TYPES = (
     "Decision",
     "Risk",
     "Process",
+    "Standard",
+    "Requirement",
 )
 
 # Predicates a knowledge relationship may use. Mirrors the semantic layer's
-# vocabulary so relationships proposed per-document carry over cleanly.
+# vocabulary so relationships proposed per-document carry over cleanly. The
+# trailing three are the compliance predicates: a requirement is ``mandated_by``
+# a standard, a control ``satisfies`` a requirement, and an amended standard or
+# requirement ``supersedes`` the version it replaces.
 RELATIONSHIP_PREDICATES = (
     "supports",
     "depends_on",
@@ -65,6 +72,9 @@ RELATIONSHIP_PREDICATES = (
     "affects",
     "owned_by",
     "related_to",
+    "mandated_by",
+    "satisfies",
+    "supersedes",
 )
 
 

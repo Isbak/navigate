@@ -129,11 +129,50 @@ def _render_evidence(answer: Answer) -> None:
 # -- command handlers ---------------------------------------------------------
 
 def _cmd_ask(args) -> None:
+    if getattr(args, "prove", False):
+        _render_proof(args)
+        return
     assistant = _build_assistant(args)
     if assistant is None:
         return
     answer = assistant.ask(args.question, depth=_clamp_depth(args.depth))
     _render_answer(args, answer)
+
+
+def _render_proof(args) -> None:
+    """Answer "prove compliance with X" deterministically from the graph.
+
+    Walks Requirement <-satisfies- control ->(evidence) and cites the approved
+    evidence, or emits the platform's standard decline when nothing approved and
+    evidenced backs the requirement - never a fabricated conclusion.
+    """
+
+    from ..compliance.service import prove
+
+    from rich.console import Console
+
+    console = Console(width=120, highlight=False)
+    result = prove(args.db, args.question)
+    if not result["found"]:
+        console.print(result["message"])
+        return
+    req = result["requirement"]
+    console.print(
+        f"[bold]Prove compliance:[/bold] {req.get('name', req['object_id'])} "
+        f"({req.get('clause_ref', '')})"
+    )
+    if not result["proven"]:
+        console.print(f"  {result['message']}")
+        return
+    for a in result["assessments"]:
+        console.print(
+            f"  [{a['status']}] satisfied by "
+            f"{a['control_name'] or a['control_object_id']}"
+        )
+        console.print(f"    {a['rationale']}")
+        for e in a["evidence"]:
+            clause = f" [{e['clause_ref']}]" if e["clause_ref"] else ""
+            console.print(f"      - \"{e['quote']}\"{clause}  ({e['artifact_id']})")
 
 
 def _cmd_explain(args) -> None:
@@ -196,6 +235,11 @@ def add_graphrag_parsers(sub: argparse._SubParsersAction) -> None:
 
     ask = sub.add_parser("ask", help="ask the GraphRAG knowledge assistant")
     ask.add_argument("question")
+    ask.add_argument(
+        "--prove",
+        action="store_true",
+        help="prove compliance with the named requirement (graph-first, no LLM)",
+    )
     _add_common_flags(ask)
 
     explain = sub.add_parser("explain", help="explain one knowledge object")

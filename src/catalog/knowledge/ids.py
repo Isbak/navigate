@@ -65,4 +65,37 @@ def requirement_display_name(standard_name: str, clause_ref: str, title: str) ->
     return "Requirement"
 
 
-__all__ = ["slugify", "object_id", "requirement_display_name"]
+def equation_display_name(standard_name: str, symbol: str, clause_ref: str) -> str:
+    """Pick a stable, human-readable name for an Equation object.
+
+    An equation is best identified by its standard and result symbol
+    (``EN 1992-1-1 V_Rd_c``); we fall back to the symbol, then the standard and
+    clause, then the clause alone, and finally ``Equation`` so a name is always
+    producible.
+
+    >>> equation_display_name("EN 1992-1-1", "V_Rd_c", "6.2.2(1)")
+    'EN 1992-1-1 V_Rd_c'
+    >>> equation_display_name("", "", "6.2.2(1)")
+    '6.2.2(1)'
+    """
+
+    standard = (standard_name or "").strip()
+    symbol = (symbol or "").strip()
+    clause = (clause_ref or "").strip()
+    if standard and symbol:
+        return f"{standard} {symbol}"
+    if symbol:
+        return symbol
+    if standard and clause:
+        return f"{standard} {clause}"
+    if clause:
+        return clause
+    return "Equation"
+
+
+__all__ = [
+    "slugify",
+    "object_id",
+    "requirement_display_name",
+    "equation_display_name",
+]

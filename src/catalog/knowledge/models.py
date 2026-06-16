@@ -56,13 +56,15 @@ OBJECT_TYPES = (
     "Process",
     "Standard",
     "Requirement",
+    "Equation",
 )
 
 # Predicates a knowledge relationship may use. Mirrors the semantic layer's
 # vocabulary so relationships proposed per-document carry over cleanly. The
-# trailing three are the compliance predicates: a requirement is ``mandated_by``
-# a standard, a control ``satisfies`` a requirement, and an amended standard or
-# requirement ``supersedes`` the version it replaces.
+# trailing four are the compliance predicates: a requirement is ``mandated_by`` a
+# standard, a control ``satisfies`` a requirement, a requirement ``specifies`` an
+# equation, and an amended standard/requirement ``supersedes`` the one it
+# replaces.
 RELATIONSHIP_PREDICATES = (
     "supports",
     "depends_on",
@@ -74,6 +76,7 @@ RELATIONSHIP_PREDICATES = (
     "related_to",
     "mandated_by",
     "satisfies",
+    "specifies",
     "supersedes",
 )
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .ids import requirement_display_name
+from .ids import equation_display_name, requirement_display_name
 from .models import RawMention, ReviewState
 
 # (semantic table, object_type, name column) tuples that feed consolidation.
@@ -114,7 +114,65 @@ def gather_mentions(
                     source_text=(r["standard_version"] and f"{standard_name} {r['standard_version']}") or standard_name,
                 )
             )
+
+    # Compliance: each candidate equation yields an Equation mention (named by its
+    # standard + result symbol) and, when a standard is named, a Standard mention -
+    # so a formula-only standard still gets a first-class Standard object too.
+    for r in gather_candidate_equations(conn, min_confidence):
+        conf = r["confidence"] if r["confidence"] is not None else 0.0
+        eq_name = equation_display_name(
+            r["standard_name"] or "", r["symbol"] or "", r["clause_ref"] or ""
+        )
+        evidence = (
+            r["supporting_text"] or r["expression"] or r["title"] or eq_name
+        ).strip()
+        out.append(
+            RawMention(
+                object_type="Equation",
+                name=eq_name,
+                artifact_id=r["artifact_id"],
+                confidence=conf,
+                source_text=evidence or eq_name,
+            )
+        )
+        standard_name = (r["standard_name"] or "").strip()
+        if standard_name:
+            out.append(
+                RawMention(
+                    object_type="Standard",
+                    name=standard_name,
+                    artifact_id=r["artifact_id"],
+                    confidence=conf,
+                    source_text=(r["standard_version"] and f"{standard_name} {r['standard_version']}") or standard_name,
+                )
+            )
     return out
+
+
+def gather_candidate_equations(
+    conn: sqlite3.Connection, min_confidence: float = 0.0
+) -> list[sqlite3.Row]:
+    """Read candidate equation rows (LLM-mined or curated import).
+
+    REJECTED proposals are skipped; a row needs at least a symbol, an expression,
+    or a clause ref to be usable.
+    """
+
+    return conn.execute(
+        """
+        SELECT artifact_id, standard_name, standard_version, clause_ref, symbol,
+               title, expression, python_code, ast_json, variables, latex, valid,
+               validation_note, confidence, supporting_text
+        FROM candidate_equations
+        WHERE confidence >= ? AND review_status != ?
+          AND (
+            (symbol IS NOT NULL AND TRIM(symbol) != '')
+            OR (expression IS NOT NULL AND TRIM(expression) != '')
+            OR (clause_ref IS NOT NULL AND TRIM(clause_ref) != '')
+          )
+        """,
+        (min_confidence, ReviewState.REJECTED.value),
+    ).fetchall()
 
 
 def gather_candidate_requirements(
@@ -601,6 +659,8 @@ def evidence_for_approved_objects(conn: sqlite3.Connection) -> list[sqlite3.Row]
 
 __all__ = [
     "gather_mentions",
+    "gather_candidate_equations",
+    "gather_candidate_requirements",
     "gather_candidate_relationships",
     "clear_consolidated",
     "clear_all",

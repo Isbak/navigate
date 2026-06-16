@@ -17,13 +17,15 @@ Two object types join the existing ten (`knowledge.models.OBJECT_TYPES`):
 | --- | --- | --- |
 | `Standard` | A standard/regulation/policy family | `standard_iso_27001` |
 | `Requirement` | One normative clause/article/control | `requirement_gdpr_art_32` |
+| `Equation` | One normative formula from a standard | `equation_en_1992_1_1_v_rd_c` |
 
-Three predicates join `RELATIONSHIP_PREDICATES`:
+Four predicates join `RELATIONSHIP_PREDICATES`:
 
 | Predicate | Direction | Meaning |
 | --- | --- | --- |
-| `mandated_by` | `Requirement → Standard` | the requirement belongs to the standard |
+| `mandated_by` | `Requirement/Equation → Standard` | belongs to the standard |
 | `satisfies` | `control → Requirement` | a control claims to meet the requirement |
+| `specifies` | `Requirement → Equation` | the clause defines the formula |
 | `supersedes` | `* → *` | an amended standard/requirement replaces an older one |
 
 A **control** is not a new type: it is an existing `Capability`, `Process`,
@@ -74,6 +76,32 @@ Clause/article locators ride on a new nullable `clause_ref` column on
 `knowledge_evidence` and `compliance_assessment_evidence` — the legal-citation
 analogue of the existing `page_number` / `slide_number`.
 
+- `compliance_equations` — enriched metadata for `Equation` objects: the formula
+  `expression`, the generated `python_code` and JSON `ast_json`, the `variables`
+  it reads (with units), the `latex` notation, and a `valid` flag, soft-linked to
+  its `Standard` and the `Requirement` that specifies it.
+
+## Equations
+
+Many standards — engineering design codes (the Eurocodes), actuarial/financial
+standards, metrology specs — state normative *formulas*, not just textual
+clauses. The compliance layer mines these into `Equation` candidates the same way
+it mines `Requirement`s: the LLM classifier emits an `equations` array (or a
+curated `equations:` list is imported), each item is turned into a candidate
+equation, and `consolidate` makes it an `Equation` knowledge object that is
+approved through the ordinary knowledge-object review workflow.
+
+The machine-readable payload is a **structured AST plus a generated Python
+function**. `semantic.equation_ast` parses each formula's `expression` with
+Python's `ast` module — never executing it — validates every node against a
+strict allowlist (arithmetic, comparisons, conditionals, and a fixed set of math
+functions; no imports, attribute access, or arbitrary calls), and projects it
+into a JSON AST and a `def symbol(vars): return expression` function whose
+parameters are exactly the formula's free variables. An equation that fails
+validation is kept with `valid = 0` and a note, so a reviewer sees it rather than
+it being silently dropped. **Nothing here executes the formula** — this layer
+captures and approves; a sandboxed evaluator is a separate, future step.
+
 ## Assessment lifecycle
 
 `compliance.service.assess` evaluates each requirement:
@@ -111,11 +139,12 @@ stale rather than silently wrong.
 ## Surfaces
 
 - **CLI** — `catalog compliance {import, assess, standards, requirements,
-  coverage, gaps, show, prove, assessments, approve, reject}`, plus
-  `catalog ask "<requirement>" --prove`.
-- **REST API** — `/api/compliance/{standards, requirements, coverage, gaps,
-  assessments, prove/{requirement}}`, `POST /assessments/{id}/approve|reject`,
-  and `POST /assess` (tracked job).
+  equations, show-equation, coverage, gaps, show, prove, assessments, approve,
+  reject}`, plus `catalog ask "<requirement>" --prove`.
+- **REST API** — `/api/compliance/{standards, requirements, equations, coverage,
+  gaps, assessments, prove/{requirement}}`, `POST /assessments/{id}/approve|reject`,
+  and `POST /assess` (tracked job). Equations are approved through the generic
+  `/api/knowledge-objects/{id}/approve|reject` endpoints.
 - **RDF** — `Requirement` resources carry `kg:clauseRef`, `kg:obligationLevel`,
   and (once approved) `kg:complianceStatus`; the predicates project as
   `kg:mandatedBy`, `kg:satisfies`, `kg:supersedes`.

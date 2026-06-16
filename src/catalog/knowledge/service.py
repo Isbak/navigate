@@ -28,7 +28,7 @@ from typing import Callable
 
 from ..db import connect, init_db
 from . import repository as repo
-from .ids import object_id, requirement_display_name
+from .ids import equation_display_name, object_id, requirement_display_name
 from .models import Cluster, ReviewState
 from .resolution import (
     ResolutionConfig,
@@ -230,6 +230,55 @@ def _add_mandated_by_relationships(
             entry.quotes.append({"artifact_id": row["artifact_id"], "quote": quote})
 
 
+def _add_equation_relationships(
+    conn,
+    resolved: dict[tuple[str, str, str], _ResolvedRel],
+    exact: dict[str, str],
+    canonical: list[tuple[str, str]],
+    config: ResolutionConfig,
+) -> None:
+    """Link each Equation object to its Standard and the Requirement it specifies.
+
+    Like ``mandated_by``, these edges are implied by the ``candidate_equations``
+    rows rather than mined as free-text relationships: an equation is
+    ``mandated_by`` its standard, and a requirement on the same clause
+    ``specifies`` the equation. Both endpoints resolve through the shared name
+    index, so an edge is only added when both objects actually exist.
+    """
+
+    def _record(src: str, predicate: str, tgt: str, row) -> None:
+        if src is None or tgt is None or src == tgt:
+            return
+        key = (src, predicate, tgt)
+        conf = row["confidence"] if row["confidence"] is not None else 0.0
+        entry = resolved.get(key)
+        if entry is None:
+            entry = _ResolvedRel(confidence=conf, quotes=[])
+            resolved[key] = entry
+        entry.confidence = max(entry.confidence, conf)
+        quote = (row["supporting_text"] or row["expression"] or "").strip()
+        if quote and len(entry.quotes) < _EVIDENCE_QUOTES_PER_RELATIONSHIP:
+            entry.quotes.append({"artifact_id": row["artifact_id"], "quote": quote})
+
+    rows = repo.gather_candidate_equations(conn, config.min_mention_confidence)
+    for row in rows:
+        standard_name = (row["standard_name"] or "").strip()
+        eq_name = equation_display_name(
+            standard_name, row["symbol"] or "", row["clause_ref"] or ""
+        )
+        eq_id = _resolve_endpoint(eq_name, exact, canonical, config)
+        if eq_id is None:
+            continue
+        if standard_name:
+            std_id = _resolve_endpoint(standard_name, exact, canonical, config)
+            _record(eq_id, "mandated_by", std_id, row)
+            clause = (row["clause_ref"] or "").strip()
+            if clause:
+                req_name = requirement_display_name(standard_name, clause, "")
+                req_id = _resolve_endpoint(req_name, exact, canonical, config)
+                _record(req_id, "specifies", eq_id, row)
+
+
 def _object_description(cluster: Cluster) -> str:
     """Use the most informative supporting quote as a representative description."""
 
@@ -365,6 +414,8 @@ def consolidate(
         )
         # Compliance: add the implied Requirement -> Standard ``mandated_by`` edges.
         _add_mandated_by_relationships(conn, resolved_rels, exact, canonical, config)
+        # Compliance: add the implied Equation edges (mandated_by / specifies).
+        _add_equation_relationships(conn, resolved_rels, exact, canonical, config)
 
         rel_total: dict[str, int] = {}
         rel_rejected: dict[str, int] = {}
@@ -428,9 +479,10 @@ def consolidate(
         # lazily: the compliance layer depends on this module's id helpers, so a
         # top-level import would be a cycle. The compliance tables are curated and
         # survive a consolidate; this only refreshes them from current candidates.
-        from ..compliance.sync import sync_requirements
+        from ..compliance.sync import sync_equations, sync_requirements
 
         sync_requirements(conn, now)
+        sync_equations(conn, now)
 
         conn.commit()
 

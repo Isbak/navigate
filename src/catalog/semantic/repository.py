@@ -25,6 +25,7 @@ _CANDIDATE_TABLES = (
     "candidate_risks",
     "candidate_relationships",
     "candidate_requirements",
+    "candidate_equations",
 )
 
 
@@ -189,6 +190,25 @@ def persist_classification(
              rq.title, rq.text, rq.obligation_level, rq.confidence,
              rq.supporting_text, obs, new, model, created_at)
             for rq in result.requirements
+        ],
+    )
+
+    conn.executemany(
+        """
+        INSERT INTO candidate_equations(
+            artifact_id, standard_name, standard_version, clause_ref, symbol,
+            title, expression, python_code, ast_json, variables, latex, valid,
+            validation_note, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (artifact_id, eq.standard_name, eq.standard_version, eq.clause_ref,
+             eq.symbol, eq.title, eq.expression, eq.python_code, eq.ast_json,
+             json.dumps(eq.variables), eq.latex, 1 if eq.valid else 0,
+             eq.validation_note, eq.confidence, eq.supporting_text,
+             obs, new, model, created_at)
+            for eq in result.equations
         ],
     )
 

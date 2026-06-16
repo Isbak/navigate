@@ -390,6 +390,30 @@ class ComplianceRequirement(BaseModel):
     status: Optional[str] = None
 
 
+class ComplianceEquationVariable(BaseModel):
+    symbol: str
+    description: str = ""
+    unit: str = ""
+
+
+class ComplianceEquation(BaseModel):
+    object_id: str
+    name: str
+    standard_object_id: str = ""
+    requirement_object_id: str = ""
+    clause_ref: str = ""
+    symbol: str = ""
+    title: str = ""
+    expression: str = ""
+    python_code: str = ""
+    ast_json: str = ""
+    variables: list[ComplianceEquationVariable] = []
+    latex: str = ""
+    valid: bool = False
+    validation_note: str = ""
+    status: Optional[str] = None
+
+
 class ComplianceCoverageStandard(BaseModel):
     standard_object_id: str
     standard_name: str

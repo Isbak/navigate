@@ -17,6 +17,7 @@ count a requirement as met only once a human has APPROVED its assessment.
 from __future__ import annotations
 
 import argparse
+import json
 
 from ..db import connect, init_db
 from . import repository as repo
@@ -49,6 +50,8 @@ def _cmd_import(args) -> None:
         f"{stats.standard_version}".rstrip()
     )
     console.print(f"Requirements imported: {stats.requirements_imported}")
+    if stats.equations_imported:
+        console.print(f"Equations imported: {stats.equations_imported}")
     console.print(
         "Run [bold]catalog consolidate[/bold] then "
         "[bold]catalog compliance assess[/bold] to evaluate them."
@@ -102,6 +105,66 @@ def _cmd_requirements(args) -> None:
             f"  [{r['obligation_level'] or '?'}] {clause}  "
             f"{r['title'] or r['object_name'] or r['object_id']}  id={r['object_id']}"
         )
+
+
+def _cmd_equations(args) -> None:
+    console = _console()
+    init_db(args.db)
+    with connect(args.db) as conn:
+        rows = repo.equations(conn, getattr(args, "standard", None))
+    console.print(f"[bold]Equations[/bold] ({len(rows)}):")
+    if not rows:
+        console.print("  (none - import a catalog with equations or classify a standard)")
+    for r in rows:
+        clause = r["clause_ref"] or ""
+        flag = "" if r["valid"] else " [INVALID]"
+        console.print(
+            f"  {r['symbol'] or '?'}{flag}  {clause}  "
+            f"{r['title'] or r['object_name'] or ''}  "
+            f"[{r['object_status'] or '?'}]  id={r['object_id']}"
+        )
+
+
+def _cmd_show_equation(args) -> None:
+    console = _console()
+    init_db(args.db)
+    with connect(args.db) as conn:
+        eq_id = repo.find_equation_id(conn, args.equation)
+        if eq_id is None:
+            console.print(f"No equation matches '{args.equation}'.")
+            return
+        eq = repo.get_equation(conn, eq_id)
+    console.print(
+        f"[bold]{eq['object_name'] or eq['symbol'] or eq['object_id']}[/bold] "
+        f"({eq['clause_ref'] or 'no clause ref'})  [{eq['object_status'] or '?'}]"
+    )
+    if eq["title"]:
+        console.print(f"  title:      {eq['title']}")
+    console.print(f"  standard:   {eq['standard_object_id'] or '(unattributed)'}")
+    if eq["requirement_object_id"]:
+        console.print(f"  specifies:  {eq['requirement_object_id']}")
+    if eq["valid"]:
+        console.print("  valid:      yes")
+    else:
+        console.print(f"  valid:      no ({eq['validation_note'] or 'not validated'})")
+    if eq["latex"]:
+        console.print(f"  notation:   {eq['latex']}")
+    if eq["expression"]:
+        console.print(f"  expression: {eq['expression']}")
+    try:
+        variables = json.loads(eq["variables"] or "[]")
+    except (TypeError, ValueError):
+        variables = []
+    if variables:
+        console.print("  variables:")
+        for v in variables:
+            unit = f" [{v.get('unit')}]" if v.get("unit") else ""
+            desc = f" - {v.get('description')}" if v.get("description") else ""
+            console.print(f"    {v.get('symbol', '?')}{unit}{desc}")
+    if eq["python_code"]:
+        console.print("  python:")
+        for line in eq["python_code"].splitlines():
+            console.print(f"    {line}")
 
 
 def _cmd_coverage(args) -> None:
@@ -237,6 +300,14 @@ def add_compliance_parser(sub: argparse._SubParsersAction) -> None:
     reqs = csub.add_parser("requirements", help="list requirements")
     reqs.add_argument("--standard", default=None, help="filter by standard object id")
 
+    eqs = csub.add_parser("equations", help="list extracted equations")
+    eqs.add_argument("--standard", default=None, help="filter by standard object id")
+
+    showeq = csub.add_parser(
+        "show-equation", help="show one equation (formula, AST, Python, variables)"
+    )
+    showeq.add_argument("equation", help="object id, symbol, clause ref, or name fragment")
+
     csub.add_parser("coverage", help="per-standard coverage (approved claims only)")
     csub.add_parser("gaps", help="requirements with no approved satisfying control")
 
@@ -271,6 +342,8 @@ def run_compliance(args) -> None:
         "assess": _cmd_assess,
         "standards": _cmd_standards,
         "requirements": _cmd_requirements,
+        "equations": _cmd_equations,
+        "show-equation": _cmd_show_equation,
         "coverage": _cmd_coverage,
         "gaps": _cmd_gaps,
         "assessments": _cmd_assessments,

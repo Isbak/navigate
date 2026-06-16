@@ -87,6 +87,32 @@ class Requirement:
 
 
 @dataclass(frozen=True)
+class Equation:
+    """Enriched metadata for an ``Equation`` knowledge object.
+
+    Carries the machine-readable payload the generic object model cannot hold:
+    the formula ``expression``, the generated ``python_code`` and ``ast_json``
+    (produced without ever executing the formula), the ``variables`` it reads,
+    and whether it passed allowlist ``valid``ation.
+    """
+
+    object_id: str
+    standard_object_id: str = ""
+    requirement_object_id: str = ""
+    clause_ref: str = ""
+    symbol: str = ""
+    title: str = ""
+    expression: str = ""
+    python_code: str = ""
+    ast_json: str = ""
+    variables: list[dict] = field(default_factory=list)
+    latex: str = ""
+    valid: bool = False
+    validation_note: str = ""
+    assessed_against_version: str = ""
+
+
+@dataclass(frozen=True)
 class AssessmentEvidence:
     """One quote backing an assessment."""
 
@@ -141,6 +167,7 @@ __all__ = [
     "EVIDENCED_STATUSES",
     "Standard",
     "Requirement",
+    "Equation",
     "AssessmentEvidence",
     "Assessment",
     "AssessStats",

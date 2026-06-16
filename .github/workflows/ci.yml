@@ -29,3 +29,32 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package with dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      # Deterministic stub mode: no API key or network. Quality thresholds are
+      # gated via --check; performance numbers are recorded in the report.
+      - name: Run benchmark suite
+        run: python -m benchmarks --check --format both --out exports/benchmark.json
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: exports/benchmark.json

@@ -1,0 +1,29 @@
+{
+  "release_governance.md": {
+    "text_markers": ["Release Governance", "Launchpad operating model", "release governance"],
+    "links": [
+      "https://wiki.example.com/release-policy",
+      "https://confluence.example.com/governance"
+    ]
+  },
+  "release_management.md": {
+    "text_markers": ["Release Management", "Test & Release Team"],
+    "links": ["https://wiki.example.com/runbook"]
+  },
+  "release_governance_v2.md": {
+    "text_markers": ["release governance", "Launchpad Model"],
+    "links": []
+  },
+  "salesforce_platform.txt": {
+    "text_markers": ["Salesforce platform", "Release Management"],
+    "links": ["https://salesforce.example.com/setup"]
+  },
+  "data_strategy.md": {
+    "text_markers": ["Data Management", "Data domain"],
+    "links": []
+  },
+  "meeting_notes.md": {
+    "text_markers": ["unclear", "ownership"],
+    "links": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "objects": [
+    {"id": "capability_release_governance", "object_type": "Capability", "merged": true, "min_documents": 2},
+    {"id": "capability_release_management", "object_type": "Capability", "merged": false, "min_documents": 1},
+    {"id": "capability_data_management", "object_type": "Capability", "merged": false, "min_documents": 1},
+    {"id": "concept_launchpad_model", "object_type": "Concept", "merged": true, "min_documents": 2},
+    {"id": "team_test_release_team", "object_type": "Team", "merged": false, "min_documents": 1},
+    {"id": "platform_salesforce", "object_type": "Platform", "merged": false, "min_documents": 1},
+    {"id": "decision_adopt_the_launchpad_operating_model", "object_type": "Decision", "merged": false, "min_documents": 1},
+    {"id": "risk_unclear_ownership_between_platform_and_delivery_teams", "object_type": "Risk", "merged": false, "min_documents": 1}
+  ],
+  "relationships": [
+    {"source_object": "capability_release_governance", "predicate": "supports", "target_object": "concept_launchpad_model"},
+    {"source_object": "capability_release_management", "predicate": "supports", "target_object": "concept_launchpad_model"},
+    {"source_object": "capability_release_management", "predicate": "owned_by", "target_object": "team_test_release_team"},
+    {"source_object": "platform_salesforce", "predicate": "affects", "target_object": "capability_release_management"}
+  ]
+}

@@ -189,6 +189,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- knowledge governance and continuous operations (Prompt #10) --
     add_governance_parser(sub)
+
+    # -- pipeline benchmark suite --
+    bench = sub.add_parser(
+        "benchmark", help="run the scan/extract/classify/consolidate/ask benchmark suite"
+    )
+    bench.add_argument(
+        "--stages", default="all",
+        help="comma-separated subset of scan,extract,classify,consolidate,ask",
+    )
+    bench.add_argument(
+        "--provider", default="stub",
+        help="stub (deterministic) or a real provider: claude/openai/ollama",
+    )
+    bench.add_argument("--out", default=None, help="write the JSON report to this path")
+    bench.add_argument("--format", choices=["table", "json", "both"], default="table")
+    bench.add_argument("--thresholds", default=None, help="path to a thresholds JSON")
+    bench.add_argument(
+        "--check", action="store_true",
+        help="exit non-zero if any reported stage fails its quality gate",
+    )
     return parser
 
 
@@ -847,6 +867,30 @@ def _cmd_fuseki_clear(args) -> None:
     print(f"Cleared all triples from {config.endpoint}")
 
 
+def _cmd_benchmark(args) -> int:
+    """Dispatch to the benchmark harness (kept in the top-level ``benchmarks`` package)."""
+
+    try:
+        from benchmarks.runner import main as run_benchmarks
+    except ImportError as exc:
+        print(
+            "Error: the benchmark suite is unavailable "
+            f"(could not import 'benchmarks': {exc}).\n"
+            "Run from the repository root or reinstall with 'pip install -e .'."
+        )
+        return 1
+
+    argv = ["--stages", args.stages, "--provider", args.provider, "--format", args.format]
+    argv += ["--llm-config", args.llm_config]
+    if args.out:
+        argv += ["--out", args.out]
+    if args.thresholds:
+        argv += ["--thresholds", args.thresholds]
+    if args.check:
+        argv.append("--check")
+    return run_benchmarks(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -941,6 +985,8 @@ def main(argv: list[str] | None = None) -> int:
         run_governance(args)
     elif args.command in {"ask", "explain", "impact", "compare", "path-reason"}:
         run_graphrag(args)
+    elif args.command == "benchmark":
+        return _cmd_benchmark(args)
     return 0
 
 

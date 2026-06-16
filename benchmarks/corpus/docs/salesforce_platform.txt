@@ -1,0 +1,4 @@
+Salesforce Platform Architecture
+
+The Salesforce platform affects Release Management workflows downstream.
+Platform configuration lives at https://salesforce.example.com/setup

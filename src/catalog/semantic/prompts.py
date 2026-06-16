@@ -14,7 +14,12 @@ from __future__ import annotations
 
 import json
 
-from .models import DOCUMENT_TYPES, ENTITY_TYPES, RELATIONSHIP_PREDICATES
+from .models import (
+    DOCUMENT_TYPES,
+    ENTITY_TYPES,
+    OBLIGATION_LEVELS,
+    RELATIONSHIP_PREDICATES,
+)
 
 SYSTEM_PROMPT = (
     "You are a meticulous knowledge analyst. You read a single business or "
@@ -55,6 +60,13 @@ _EXAMPLE = {
     "relationships": [
         {"subject": "Release Governance", "predicate": "supports",
          "object": "Launchpad Model", "confidence": 0.87, "supporting_text": "..."},
+    ],
+    "requirements": [
+        {"standard_name": "ISO 27001", "standard_version": "2022",
+         "clause_ref": "A.8.24", "title": "Use of cryptography",
+         "text": "Rules for the effective use of cryptography shall be defined "
+                 "and implemented.", "obligation_level": "MANDATORY",
+         "confidence": 0.9, "supporting_text": "..."},
     ],
 }
 
@@ -107,6 +119,16 @@ Analyze the document below and return a single JSON object with these keys:
 - "relationships": array of {{"subject": str, "predicate": str, "object": str,
   "confidence": 0.0-1.0, "supporting_text": str}}. predicate is one of
   [{_bullet(RELATIONSHIP_PREDICATES)}].
+- "requirements": array of {{"standard_name": str, "standard_version": str,
+  "clause_ref": str, "title": str, "text": str, "obligation_level": str,
+  "confidence": 0.0-1.0, "supporting_text": str}}. ONLY populate this when the
+  document is a standard, regulation, law, or formal policy that states normative
+  obligations (e.g. GDPR, ISO 27001, NIS2, an internal security policy). Each
+  item is one clause/article/control: "clause_ref" is its locator (e.g.
+  "Art. 32", "A.8.24", "5.1"), "text" is the obligation in the document's own
+  words, and "obligation_level" is one of [{_bullet(OBLIGATION_LEVELS)}]
+  (MANDATORY for "shall"/"must", RECOMMENDED for "should", OPTIONAL for "may").
+  Leave this array empty for ordinary documents.
 
 Rules:
 - Use the controlled vocabularies above. If document_type does not fit, use

@@ -40,4 +40,29 @@ def object_id(object_type: str, canonical_name: str) -> str:
     return f"{slugify(object_type)}_{slugify(canonical_name)}"
 
 
-__all__ = ["slugify", "object_id"]
+def requirement_display_name(standard_name: str, clause_ref: str, title: str) -> str:
+    """Pick a stable, human-readable name for a Requirement object.
+
+    A requirement is best identified by its standard and clause locator
+    (``GDPR Art. 32``); we fall back to the clause ref or title alone, and
+    finally to ``Requirement`` so a name is always producible.
+
+    >>> requirement_display_name("GDPR", "Art. 32", "Security of processing")
+    'GDPR Art. 32'
+    >>> requirement_display_name("", "", "Data minimisation")
+    'Data minimisation'
+    """
+
+    standard = (standard_name or "").strip()
+    clause = (clause_ref or "").strip()
+    title = (title or "").strip()
+    if standard and clause:
+        return f"{standard} {clause}"
+    if clause:
+        return clause
+    if title:
+        return title
+    return "Requirement"
+
+
+__all__ = ["slugify", "object_id", "requirement_display_name"]

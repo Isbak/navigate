@@ -53,6 +53,7 @@ class ApiSettings:
     link_config: str = "config/link_patterns.yml"
     llm_config: str = "config/llm.yml"
     governance_config: str = "config/governance.yml"
+    compliance_config: str = "config/compliance.yml"
     jena_config: str = "config/jena.yml"
 
     @property
@@ -139,6 +140,9 @@ def load_api_config(path: str | Path = DEFAULT_CONFIG_PATH) -> ApiSettings:
         llm_config=_resolve_path(merged.get("llm_config"), defaults.llm_config, base_dir),
         governance_config=_resolve_path(
             merged.get("governance_config"), defaults.governance_config, base_dir
+        ),
+        compliance_config=_resolve_path(
+            merged.get("compliance_config"), defaults.compliance_config, base_dir
         ),
         jena_config=_resolve_path(merged.get("jena_config"), defaults.jena_config, base_dir),
     )

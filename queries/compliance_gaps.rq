@@ -1,0 +1,14 @@
+# Requirements with no approved control satisfying them - the open gaps.
+# A requirement is covered when some control has a `satisfies` edge to it in the
+# approved projection; everything else is a gap.
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?requirement ?requirementLabel ?clauseRef
+WHERE {
+    ?requirement a kg:Requirement .
+    ?requirement rdfs:label ?requirementLabel .
+    OPTIONAL { ?requirement kg:clauseRef ?clauseRef . }
+    FILTER NOT EXISTS { ?control kg:satisfies ?requirement . }
+}
+ORDER BY ?requirementLabel

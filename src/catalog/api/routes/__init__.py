@@ -9,6 +9,7 @@ from __future__ import annotations
 from . import (
     artifacts,
     ask,
+    compliance,
     evidence,
     governance,
     graph,
@@ -27,6 +28,7 @@ ROUTERS = (
     relationships.router,
     evidence.router,
     governance.router,
+    compliance.router,
     graph.router,
     ask.router,
     jobs.router,

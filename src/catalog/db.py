@@ -175,6 +175,28 @@ CREATE TABLE IF NOT EXISTS candidate_relationships(
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_candidate_relationships_artifact ON candidate_relationships(artifact_id);
+-- Normative clauses mined from documents classified as a standard/regulation, or
+-- loaded from a curated framework catalog (``catalog compliance import``). Each
+-- row becomes a Requirement (and its parent Standard) knowledge object during
+-- consolidation. Curated rows carry ``model='curated_import'``.
+CREATE TABLE IF NOT EXISTS candidate_requirements(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  standard_name TEXT,
+  standard_version TEXT,
+  clause_ref TEXT,
+  title TEXT,
+  requirement_text TEXT,
+  obligation_level TEXT DEFAULT 'MANDATORY',
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'OBSERVATION',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_requirements_artifact ON candidate_requirements(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_requirements_standard ON candidate_requirements(standard_name);
 CREATE TABLE IF NOT EXISTS classification_runs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT,
@@ -229,6 +251,7 @@ CREATE TABLE IF NOT EXISTS knowledge_evidence(
   quote TEXT,
   page_number INTEGER,
   slide_number INTEGER,
+  clause_ref TEXT,
   confidence REAL,
   created_at TEXT
 );
@@ -336,6 +359,82 @@ CREATE TABLE IF NOT EXISTS knowledge_change_log(
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_change_log_object ON knowledge_change_log(object_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_change_log_type ON knowledge_change_log(change_type);
+-- ---------------------------------------------------------------------------
+-- Compliance & standards layer.
+--
+-- These tables enrich the Standard/Requirement knowledge objects with what the
+-- generic object model cannot carry (clause locators, versions, effective dates)
+-- and hold the human-curated compliance assessment record and its evidence.
+-- Like the governance tables, they hold curated state that must survive a
+-- ``consolidate`` (which deletes and recreates knowledge_objects): assessments,
+-- sign-offs, and their evidence would be destroyed by an ON DELETE CASCADE. They
+-- therefore reference ``knowledge_objects.id`` softly (by value, with an index)
+-- rather than via an enforced foreign key, so the compliance history is
+-- preserved across re-consolidation.
+CREATE TABLE IF NOT EXISTS compliance_standards(
+  object_id TEXT PRIMARY KEY,
+  name TEXT,
+  authority TEXT,
+  version TEXT,
+  jurisdiction TEXT,
+  effective_from TEXT,
+  source_url TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS compliance_requirements(
+  object_id TEXT PRIMARY KEY,
+  standard_object_id TEXT,
+  clause_ref TEXT,
+  title TEXT,
+  requirement_text TEXT,
+  obligation_level TEXT DEFAULT 'MANDATORY',
+  assessed_against_version TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_compliance_requirements_standard ON compliance_requirements(standard_object_id);
+CREATE TABLE IF NOT EXISTS compliance_assessments(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  requirement_object_id TEXT NOT NULL,
+  control_object_id TEXT,
+  status TEXT NOT NULL DEFAULT 'UNASSESSED',
+  assessed_against_version TEXT,
+  rationale TEXT,
+  assessor TEXT,
+  assessed_at TEXT,
+  review_status TEXT DEFAULT 'PROPOSED',
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_compliance_assessments_pair
+  ON compliance_assessments(requirement_object_id, COALESCE(control_object_id, ''));
+CREATE INDEX IF NOT EXISTS idx_compliance_assessments_req ON compliance_assessments(requirement_object_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_assessments_status ON compliance_assessments(status);
+CREATE TABLE IF NOT EXISTS compliance_assessment_evidence(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assessment_id INTEGER NOT NULL REFERENCES compliance_assessments(id) ON DELETE CASCADE,
+  artifact_id TEXT,
+  quote TEXT,
+  clause_ref TEXT,
+  page_number INTEGER,
+  confidence REAL,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_compliance_assessment_evidence_assessment
+  ON compliance_assessment_evidence(assessment_id);
+CREATE TABLE IF NOT EXISTS compliance_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT,
+  finished_at TEXT,
+  requirements_assessed INTEGER DEFAULT 0,
+  satisfied INTEGER DEFAULT 0,
+  partial INTEGER DEFAULT 0,
+  gaps INTEGER DEFAULT 0,
+  not_applicable INTEGER DEFAULT 0,
+  coverage REAL DEFAULT 0.0,
+  errors INTEGER DEFAULT 0
+);
 -- ---------------------------------------------------------------------------
 -- API job tracking (REST API layer).
 --
@@ -451,6 +550,11 @@ _EXPECTED_SEMANTIC_COLUMNS = {
         "id", "artifact_id", "subject", "predicate", "object", "confidence",
         "supporting_text", "knowledge_type", "review_status", "model", "created_at",
     },
+    "candidate_requirements": {
+        "id", "artifact_id", "standard_name", "standard_version", "clause_ref",
+        "title", "requirement_text", "obligation_level", "confidence",
+        "supporting_text", "knowledge_type", "review_status", "model", "created_at",
+    },
     "classification_runs": {
         "id", "started_at", "completed_at", "model",
         "documents_processed", "documents_skipped", "errors",
@@ -481,7 +585,7 @@ _EXPECTED_KNOWLEDGE_COLUMNS = {
     },
     "knowledge_evidence": {
         "id", "knowledge_object_id", "artifact_id", "quote",
-        "page_number", "slide_number", "confidence", "created_at",
+        "page_number", "slide_number", "clause_ref", "confidence", "created_at",
     },
     "knowledge_relationships": {
         "id", "source_object", "predicate", "target_object", "confidence",
@@ -548,6 +652,52 @@ def _stale_governance_tables(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
+# Expected columns for the compliance-layer tables. Like governance they hold
+# curated state with nothing to migrate to, so a mismatched table is dropped and
+# recreated. ``compliance_assessment_evidence`` has a FOREIGN KEY to
+# ``compliance_assessments``, so the set is dropped children-first.
+_EXPECTED_COMPLIANCE_COLUMNS = {
+    "compliance_standards": {
+        "object_id", "name", "authority", "version", "jurisdiction",
+        "effective_from", "source_url", "created_at", "updated_at",
+    },
+    "compliance_requirements": {
+        "object_id", "standard_object_id", "clause_ref", "title",
+        "requirement_text", "obligation_level", "assessed_against_version",
+        "created_at", "updated_at",
+    },
+    "compliance_assessments": {
+        "id", "requirement_object_id", "control_object_id", "status",
+        "assessed_against_version", "rationale", "assessor", "assessed_at",
+        "review_status", "created_at", "updated_at",
+    },
+    "compliance_assessment_evidence": {
+        "id", "assessment_id", "artifact_id", "quote", "clause_ref",
+        "page_number", "confidence", "created_at",
+    },
+    "compliance_runs": {
+        "id", "started_at", "finished_at", "requirements_assessed",
+        "satisfied", "partial", "gaps", "not_applicable", "coverage", "errors",
+    },
+}
+
+# Drop order: child (evidence) before the assessments it references.
+_COMPLIANCE_DROP_ORDER = (
+    "compliance_assessment_evidence",
+    "compliance_assessments",
+    "compliance_requirements",
+    "compliance_standards",
+    "compliance_runs",
+)
+
+
+def _compliance_tables_stale(conn: sqlite3.Connection) -> bool:
+    return any(
+        _columns_mismatch(conn, table, expected)
+        for table, expected in _EXPECTED_COMPLIANCE_COLUMNS.items()
+    )
+
+
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     """Create the schema, rebuilding the local index if it predates this layout.
 
@@ -581,6 +731,11 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         # columns no longer match so the recreated schema is authoritative.
         for table in _stale_governance_tables(conn):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
+        # Compliance tables evolve independently; if any changed shape, drop the
+        # whole set (children first) so the recreated schema is authoritative.
+        if _compliance_tables_stale(conn):
+            for table in _COMPLIANCE_DROP_ORDER:
+                conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.executescript(SCHEMA)
 
 

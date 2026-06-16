@@ -25,6 +25,7 @@ JOB_TYPES = (
     "classify",
     "consolidate",
     "rescan",
+    "compliance-assess",
 )
 
 

@@ -63,6 +63,10 @@ _TAGS_METADATA = [
         "description": "Governance dashboards, quality, freshness, ownership, and alerts.",
     },
     {
+        "name": "compliance",
+        "description": "Standards, requirements, coverage, gaps, assessments, and proofs.",
+    },
+    {
         "name": "graph",
         "description": "Graph nodes, edges, traversal, impact, path, and export endpoints.",
     },

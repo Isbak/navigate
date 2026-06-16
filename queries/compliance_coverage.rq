@@ -1,0 +1,20 @@
+# Per-standard requirement counts and how many are satisfied, for a coverage
+# overview. A requirement counts as satisfied when its approved projection
+# carries a kg:complianceStatus of "SATISFIED".
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?standardLabel (COUNT(DISTINCT ?requirement) AS ?total)
+       (COUNT(DISTINCT ?satisfied) AS ?satisfiedCount)
+WHERE {
+    ?requirement a kg:Requirement .
+    OPTIONAL { ?requirement kg:mandatedBy ?standard .
+               ?standard rdfs:label ?standardLabel . }
+    OPTIONAL {
+        ?requirement kg:complianceStatus ?status .
+        FILTER(?status = "SATISFIED")
+        BIND(?requirement AS ?satisfied)
+    }
+}
+GROUP BY ?standardLabel
+ORDER BY ?standardLabel

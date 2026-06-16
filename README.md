@@ -946,6 +946,85 @@ weights, drift sensitivity, and the ingestion cadence); every value falls back t
 a sensible default, so governance runs out of the box. Domains themselves are not
 configured — they are discovered from the documents' semantic classifications.
 
+## Compliance and standards
+
+The compliance layer turns the platform into an auditable compliance posture. It
+handles two new classes of document — **standards/regulations** (the law itself:
+GDPR, ISO 27001, NIS2, internal policy) and the **compliance-proof** documents
+that show the organization meets them — and answers *"are we compliant with X,
+and prove it?"* and *"where are our gaps?"*.
+
+It is a natural extension of the existing invariants, not a new system: nothing
+is a fact without traceable evidence, nothing is trusted until a human approves
+it, and the assistant declines rather than hallucinates. Those rules *are* an
+audit posture.
+
+### The model
+
+Two new knowledge-object types join the existing ten, so they flow through
+consolidation, governance, RDF, and GraphRAG like everything else:
+
+- **`Standard`** — a standard/regulation/policy family (e.g. *ISO 27001:2022*).
+- **`Requirement`** — one normative clause/article/control (e.g. *GDPR Art. 32*).
+
+Organizational **controls are not a new type** — they are the existing
+`Capability` / `Process` / `Platform` / `Technology` objects already consolidated
+from internal documents. Compliance is the *mapping* between them, expressed with
+three new relationship predicates:
+
+- `mandated_by` — `Requirement → Standard` (which standard a requirement belongs to)
+- `satisfies` — `control → Requirement` (a control claims to meet a requirement)
+- `supersedes` — versioning of an amended standard or requirement
+
+### Two ways in
+
+Requirements arrive by **either** path, converging on the same
+`candidate_requirements` table and the same `Standard`/`Requirement` objects:
+
+1. **LLM extraction** — a document classified as a `Standard`/`Regulation`/
+   `Governance` has its clauses mined into candidate requirements during
+   `catalog classify`.
+2. **Curated import** — a maintained YAML/CSV catalog of a well-known framework:
+
+   ```bash
+   catalog compliance import config/standards/iso27001.yml
+   ```
+
+### Assess, prove, and find gaps
+
+`catalog compliance assess` evaluates every requirement against the controls
+that `satisfy` it, gathers their evidence, and **derives** a status — `SATISFIED`,
+`PARTIAL`, `GAP`, or `NOT_APPLICABLE` — into a dedicated *assessment record*
+(status + assessor + the standard version it was assessed against + linked
+evidence). As everywhere on the platform, the engine only *proposes*: an
+assessment is written `PROPOSED` and a requirement counts toward coverage only
+once a human **approves** it. A re-run preserves prior review decisions, exactly
+like `consolidate`. The evidence invariant carries over too — a `SATISFIED` /
+`PARTIAL` claim must be backed by at least one evidence quote, or it is recorded
+as a `GAP` instead.
+
+```bash
+catalog compliance import config/standards/iso27001.yml
+catalog consolidate
+catalog compliance assess
+catalog compliance coverage          # per-standard coverage (approved claims only)
+catalog compliance gaps              # requirements with no approved satisfying control
+catalog compliance prove "GDPR Art. 32"   # cited proof, or "No supporting evidence found."
+catalog compliance approve <assessment_id>
+```
+
+`catalog ask "GDPR Art. 32" --prove` answers the same proof question through the
+GraphRAG entry point (graph-first, no LLM), and the REST API exposes the whole
+surface under `/api/compliance/*` (standards, requirements, coverage, gaps,
+assessments, `prove`, approve/reject, and an `assess` job). The SPARQL queries in
+`queries/compliance_*.rq` cover gaps, coverage, and the control→requirement map.
+
+Rules are configured in `config/compliance.yml` (which object types act as
+controls, the coverage threshold, and the evidence-staleness horizon that
+downgrades stale `SATISFIED` claims to `PARTIAL`); every value has a sensible
+default, so compliance runs out of the box. See
+[`docs/compliance.md`](docs/compliance.md) for the full design.
+
 ## REST API
 
 The catalog is also exposed through a thin, local-first REST API (FastAPI +

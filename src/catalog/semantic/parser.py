@@ -24,11 +24,13 @@ import re
 from .models import (
     DOCUMENT_TYPES,
     ENTITY_TYPES,
+    OBLIGATION_LEVELS,
     RELATIONSHIP_PREDICATES,
     CandidateCapability,
     CandidateDecision,
     CandidateEntity,
     CandidateRelationship,
+    CandidateRequirement,
     CandidateRisk,
     ClassificationResult,
     DomainScore,
@@ -42,6 +44,7 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _DOC_TYPE_LOOKUP = {t.lower(): t for t in DOCUMENT_TYPES}
 _ENTITY_TYPE_LOOKUP = {t.lower(): t for t in ENTITY_TYPES}
 _PREDICATE_LOOKUP = {p.lower(): p for p in RELATIONSHIP_PREDICATES}
+_OBLIGATION_LOOKUP = {o.lower(): o for o in OBLIGATION_LEVELS}
 
 
 class ParseError(ValueError):
@@ -243,6 +246,37 @@ def _parse_relationships(value: object) -> list[CandidateRelationship]:
     return out
 
 
+def _normalize_obligation(value: object) -> str:
+    return _OBLIGATION_LOOKUP.get(_text(value).lower(), "MANDATORY")
+
+
+def _parse_requirements(value: object) -> list[CandidateRequirement]:
+    out: list[CandidateRequirement] = []
+    for item in _as_list(value):
+        if not isinstance(item, dict):
+            continue
+        text = _text(item.get("text") or item.get("requirement_text"))
+        clause = _text(item.get("clause_ref") or item.get("clause") or item.get("ref"))
+        title = _text(item.get("title") or item.get("name"))
+        # A requirement needs at least an obligation text or a clause locator to
+        # be useful; drop empty rows the way the other candidate parsers do.
+        if not (text or clause or title):
+            continue
+        out.append(
+            CandidateRequirement(
+                clause_ref=clause,
+                title=title,
+                text=text,
+                standard_name=_text(item.get("standard_name") or item.get("standard")),
+                standard_version=_text(item.get("standard_version") or item.get("version")),
+                obligation_level=_normalize_obligation(item.get("obligation_level")),
+                confidence=validate_confidence(item.get("confidence")),
+                supporting_text=_text(item.get("supporting_text")),
+            )
+        )
+    return out
+
+
 def parse_classification_response(text: str) -> ClassificationResult:
     """Parse raw model output into a validated :class:`ClassificationResult`."""
 
@@ -258,6 +292,7 @@ def parse_classification_response(text: str) -> ClassificationResult:
         decisions=_parse_decisions(data.get("decisions")),
         risks=_parse_risks(data.get("risks")),
         relationships=_parse_relationships(data.get("relationships")),
+        requirements=_parse_requirements(data.get("requirements")),
     )
 
 

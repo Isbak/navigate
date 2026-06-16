@@ -368,6 +368,91 @@ class ConfidenceApprovalResponse(BaseModel):
     message: str
 
 
+# -- compliance ---------------------------------------------------------------
+
+class ComplianceStandard(BaseModel):
+    object_id: str
+    name: str
+    authority: str = ""
+    version: str = ""
+    jurisdiction: str = ""
+    status: Optional[str] = None
+
+
+class ComplianceRequirement(BaseModel):
+    object_id: str
+    name: str
+    standard_object_id: str = ""
+    clause_ref: str = ""
+    title: str = ""
+    requirement_text: str = ""
+    obligation_level: str = ""
+    status: Optional[str] = None
+
+
+class ComplianceCoverageStandard(BaseModel):
+    standard_object_id: str
+    standard_name: str
+    total: int
+    satisfied: int
+    partial: int
+    coverage: float
+
+
+class ComplianceCoverageResponse(BaseModel):
+    overall: float
+    standards: list[ComplianceCoverageStandard]
+
+
+class ComplianceGap(BaseModel):
+    object_id: str
+    requirement_name: str
+    clause_ref: str = ""
+    title: str = ""
+    obligation_level: str = ""
+    standard_object_id: str = ""
+    standard_name: str = ""
+
+
+class ComplianceAssessment(BaseModel):
+    id: int
+    requirement_object_id: str
+    requirement_name: Optional[str] = None
+    control_object_id: Optional[str] = None
+    control_name: Optional[str] = None
+    status: str
+    review_status: str
+    assessed_against_version: str = ""
+    rationale: str = ""
+
+
+class ComplianceEvidence(BaseModel):
+    artifact_id: Optional[str] = None
+    quote: str = ""
+    clause_ref: str = ""
+    page_number: Optional[int] = None
+    confidence: Optional[float] = None
+
+
+class ComplianceProofAssessment(BaseModel):
+    assessment_id: int
+    control_object_id: Optional[str] = None
+    control_name: Optional[str] = None
+    status: str
+    rationale: str = ""
+    assessed_against_version: str = ""
+    evidence: list[ComplianceEvidence] = Field(default_factory=list)
+
+
+class ComplianceProofResponse(BaseModel):
+    found: bool
+    proven: bool
+    term: str
+    message: str = ""
+    requirement: dict[str, Any] = Field(default_factory=dict)
+    assessments: list[ComplianceProofAssessment] = Field(default_factory=list)
+
+
 __all__ = [
     "PaginatedResponse",
     "ErrorResponse",
@@ -406,4 +491,13 @@ __all__ = [
     "ActionResponse",
     "ConfidenceApprovalRequest",
     "ConfidenceApprovalResponse",
+    "ComplianceStandard",
+    "ComplianceRequirement",
+    "ComplianceCoverageStandard",
+    "ComplianceCoverageResponse",
+    "ComplianceGap",
+    "ComplianceAssessment",
+    "ComplianceEvidence",
+    "ComplianceProofAssessment",
+    "ComplianceProofResponse",
 ]

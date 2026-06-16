@@ -1,0 +1,23 @@
+# Compliance layer configuration.
+#
+# Every key is optional; the defaults shown here are applied when the file or a
+# key is missing, so compliance always runs. See src/catalog/compliance/config.py.
+
+# Knowledge-object types that may act as controls (satisfy a requirement).
+control_types:
+  - Capability
+  - Process
+  - Platform
+  - Technology
+
+assessment:
+  # Fraction of a standard's requirements that must be satisfied for the
+  # standard to be considered "covered" (reporting threshold only).
+  coverage_threshold: 0.8
+  # A SATISFIED claim whose newest evidence is older than this many days, or
+  # whose control governance freshness is STALE/ARCHIVED, is downgraded to
+  # PARTIAL - stale proof is weaker proof.
+  stale_evidence_days: 365
+  # When true, only APPROVED `satisfies` relationships count as controls (the
+  # platform's trust rule). Set false to let proposed links count too.
+  require_approved_controls: true

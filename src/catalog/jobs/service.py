@@ -121,6 +121,12 @@ def _run_consolidate(ctx: JobContext, artifact_id: str | None) -> dict:
     return consolidate(ctx.db_path).as_dict()
 
 
+def _run_compliance_assess(ctx: JobContext, artifact_id: str | None) -> dict:
+    from ..compliance.service import assess
+
+    return assess(ctx.db_path).as_dict()
+
+
 def _run_rescan(ctx: JobContext, artifact_id: str | None) -> dict:
     from ..scanner import scan_file
 
@@ -153,6 +159,7 @@ _HANDLERS = {
     "classify": _run_classify,
     "consolidate": _run_consolidate,
     "rescan": _run_rescan,
+    "compliance-assess": _run_compliance_assess,
 }
 
 

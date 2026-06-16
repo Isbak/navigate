@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .db import connect, init_db, latest_scan_run
 from .extraction import extract_all
+from .compliance.cli import add_compliance_parser, run_compliance
 from .governance import service as gov_service
 from .governance.cli import add_governance_parser, run_governance
 from .graph.cli import add_graph_parser, run_graph
@@ -67,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--llm-config", default="config/llm.yml")
     parser.add_argument("--jena-config", default="config/jena.yml")
     parser.add_argument("--governance-config", default="config/governance.yml")
+    parser.add_argument("--compliance-config", default="config/compliance.yml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
@@ -189,6 +191,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- knowledge governance and continuous operations (Prompt #10) --
     add_governance_parser(sub)
+
+    # -- compliance & standards --
+    add_compliance_parser(sub)
 
     # -- pipeline benchmark suite --
     bench = sub.add_parser(
@@ -983,6 +988,8 @@ def main(argv: list[str] | None = None) -> int:
         run_graph(args)
     elif args.command == "governance":
         run_governance(args)
+    elif args.command == "compliance":
+        run_compliance(args)
     elif args.command in {"ask", "explain", "impact", "compare", "path-reason"}:
         run_graphrag(args)
     elif args.command == "benchmark":

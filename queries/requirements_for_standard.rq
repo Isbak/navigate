@@ -1,0 +1,16 @@
+# Every requirement mandated by a given standard, with its clause reference and
+# obligation level. Bind ?standardLabel (e.g. "ISO 27001") before running.
+PREFIX kg: <https://knowledge-atlas.local/kg/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?requirementLabel ?clauseRef ?obligationLevel
+WHERE {
+    ?requirement a kg:Requirement .
+    ?requirement rdfs:label ?requirementLabel .
+    ?requirement kg:mandatedBy ?standard .
+    ?standard rdfs:label ?standardLabel .
+    OPTIONAL { ?requirement kg:clauseRef ?clauseRef . }
+    OPTIONAL { ?requirement kg:obligationLevel ?obligationLevel . }
+    FILTER(?standardLabel = "ISO 27001")
+}
+ORDER BY ?clauseRef

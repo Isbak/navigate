@@ -1,0 +1,24 @@
+{
+  "questions": [
+    {
+      "question": "What is release governance and what does it support?",
+      "expected_object_ids": ["capability_release_governance"],
+      "expect_supported": true
+    },
+    {
+      "question": "What does Salesforce affect?",
+      "expected_object_ids": ["platform_salesforce"],
+      "expect_supported": true
+    },
+    {
+      "question": "Who owns Release Management?",
+      "expected_object_ids": ["capability_release_management"],
+      "expect_supported": true
+    },
+    {
+      "question": "Tell me about quantum blockchain mining rigs",
+      "expected_object_ids": [],
+      "expect_supported": false
+    }
+  ]
+}

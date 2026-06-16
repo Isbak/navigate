@@ -1,0 +1,101 @@
+{
+  "release_governance.md": {
+    "document_type": "Governance",
+    "type_confidence": 0.93,
+    "short_summary": "Defines the release governance model and operating cadence.",
+    "long_summary": "Release governance across delivery teams, adopting the Launchpad operating model.",
+    "domains": [{"domain": "Test & Release", "confidence": 0.9}],
+    "capabilities": [
+      {"name": "Release Governance", "confidence": 0.95, "supporting_text": "we run release governance"}
+    ],
+    "entities": [
+      {"entity_type": "Concept", "name": "Launchpad Model", "confidence": 0.88, "supporting_text": "adopt the Launchpad operating model"}
+    ],
+    "decisions": [
+      {"decision_text": "Adopt the Launchpad operating model", "confidence": 0.85, "supporting_text": "We will adopt the Launchpad operating model"}
+    ],
+    "risks": [],
+    "relationships": [
+      {"subject": "Release Governance", "predicate": "supports", "object": "Launchpad Model", "confidence": 0.87, "supporting_text": "adopt the Launchpad operating model"}
+    ]
+  },
+  "release_management.md": {
+    "document_type": "Strategy",
+    "type_confidence": 0.88,
+    "short_summary": "Release management strategy and ownership.",
+    "long_summary": "Release Management is owned by the Test & Release Team and supports the Launchpad Model.",
+    "domains": [{"domain": "Test & Release", "confidence": 0.85}],
+    "capabilities": [
+      {"name": "Release Management", "confidence": 0.9, "supporting_text": "Release Management is the core capability"}
+    ],
+    "entities": [
+      {"entity_type": "Team", "name": "Test & Release Team", "confidence": 0.85, "supporting_text": "owned by the Test & Release Team"}
+    ],
+    "decisions": [],
+    "risks": [],
+    "relationships": [
+      {"subject": "Release Management", "predicate": "supports", "object": "Launchpad Model", "confidence": 0.86, "supporting_text": "supports the Launchpad Model"},
+      {"subject": "Release Management", "predicate": "owned_by", "object": "Test & Release Team", "confidence": 0.8, "supporting_text": "owned by the Test & Release Team"}
+    ]
+  },
+  "release_governance_v2.md": {
+    "document_type": "Governance",
+    "type_confidence": 0.84,
+    "short_summary": "Revised release governance note.",
+    "long_summary": "Updated release governance practice that references the Launchpad Model.",
+    "domains": [{"domain": "Test & Release", "confidence": 0.8}],
+    "capabilities": [
+      {"name": "Release governance", "confidence": 0.82, "supporting_text": "release governance practice"}
+    ],
+    "entities": [
+      {"entity_type": "Concept", "name": "Launchpad Model", "confidence": 0.84, "supporting_text": "references the Launchpad Model"}
+    ],
+    "decisions": [],
+    "risks": [],
+    "relationships": []
+  },
+  "salesforce_platform.txt": {
+    "document_type": "Architecture",
+    "type_confidence": 0.86,
+    "short_summary": "Salesforce platform architecture.",
+    "long_summary": "The Salesforce platform affects Release Management workflows.",
+    "domains": [{"domain": "Architecture", "confidence": 0.8}],
+    "capabilities": [],
+    "entities": [
+      {"entity_type": "Platform", "name": "Salesforce", "confidence": 0.85, "supporting_text": "The Salesforce platform"}
+    ],
+    "decisions": [],
+    "risks": [],
+    "relationships": [
+      {"subject": "Salesforce", "predicate": "affects", "object": "Release Management", "confidence": 0.83, "supporting_text": "affects Release Management workflows"}
+    ]
+  },
+  "data_strategy.md": {
+    "document_type": "Strategy",
+    "type_confidence": 0.9,
+    "short_summary": "Data strategy and management.",
+    "long_summary": "The Data Management capability underpins the analytics roadmap.",
+    "domains": [{"domain": "Data", "confidence": 0.9}],
+    "capabilities": [
+      {"name": "Data Management", "confidence": 0.88, "supporting_text": "Data Management capability"}
+    ],
+    "entities": [],
+    "decisions": [],
+    "risks": [],
+    "relationships": []
+  },
+  "meeting_notes.md": {
+    "document_type": "Meeting Notes",
+    "type_confidence": 0.8,
+    "short_summary": "Weekly sync notes.",
+    "long_summary": "Discussion of release timelines and an ownership risk.",
+    "domains": [{"domain": "Test & Release", "confidence": 0.6}],
+    "capabilities": [],
+    "entities": [],
+    "decisions": [],
+    "risks": [
+      {"risk_description": "Unclear ownership between platform and delivery teams", "confidence": 0.7, "supporting_text": "a key risk is unclear ownership"}
+    ],
+    "relationships": []
+  }
+}

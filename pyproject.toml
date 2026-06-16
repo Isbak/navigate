@@ -33,4 +33,8 @@ catalog = "catalog.cli:main"
 navigate = "catalog.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["catalog*", "benchmarks*"]
+
+[tool.setuptools.package-data]
+benchmarks = ["corpus/docs/*", "corpus/gold/*.json", "thresholds.json"]

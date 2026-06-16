@@ -1,0 +1,28 @@
+{
+  "_comment": "Minimum quality gates asserted in deterministic (stub) mode. Performance numbers are reported but never gated (CI-runner variance).",
+  "scan": {
+    "delta_accuracy": 1.0,
+    "duplicate_accuracy": 1.0
+  },
+  "extract": {
+    "text_recall": 0.95,
+    "link_f1": 0.9
+  },
+  "classify": {
+    "document_type_accuracy": 0.95,
+    "domain_f1": 0.8,
+    "capability_f1": 0.9,
+    "entity_f1": 0.9,
+    "relationship_f1": 0.9
+  },
+  "consolidate": {
+    "object_f1": 0.9,
+    "merge_accuracy": 1.0,
+    "relationship_recall": 0.8
+  },
+  "ask": {
+    "retrieval_recall": 0.8,
+    "groundedness_accuracy": 1.0,
+    "citation_rate": 1.0
+  }
+}

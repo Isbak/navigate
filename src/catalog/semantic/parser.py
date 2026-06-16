@@ -21,6 +21,7 @@ import json
 import logging
 import re
 
+from .equation_ast import analyze_equation
 from .models import (
     DOCUMENT_TYPES,
     ENTITY_TYPES,
@@ -29,6 +30,7 @@ from .models import (
     CandidateCapability,
     CandidateDecision,
     CandidateEntity,
+    CandidateEquation,
     CandidateRelationship,
     CandidateRequirement,
     CandidateRisk,
@@ -277,6 +279,72 @@ def _parse_requirements(value: object) -> list[CandidateRequirement]:
     return out
 
 
+def _parse_variables(value: object) -> list[dict]:
+    """Normalize an equation's variable list into ``{symbol, description, unit}``."""
+
+    out: list[dict] = []
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            symbol = _text(item.get("symbol") or item.get("name"))
+            if not symbol:
+                continue
+            out.append(
+                {
+                    "symbol": symbol,
+                    "description": _text(item.get("description") or item.get("meaning")),
+                    "unit": _text(item.get("unit") or item.get("units")),
+                }
+            )
+        elif isinstance(item, str) and item.strip():
+            out.append({"symbol": item.strip(), "description": "", "unit": ""})
+    return out
+
+
+def _parse_equations(value: object) -> list[CandidateEquation]:
+    """Parse equation proposals and validate each formula without executing it.
+
+    Every formula is run through :func:`analyze_equation`, which parses it with
+    ``ast`` and checks it against a strict allowlist. An invalid formula is kept
+    (``valid=False`` with a note) so a human still reviews it, mirroring how the
+    other parsers keep low-confidence rows rather than dropping them.
+    """
+
+    out: list[CandidateEquation] = []
+    for item in _as_list(value):
+        if not isinstance(item, dict):
+            continue
+        expression = _text(item.get("expression") or item.get("formula"))
+        python_code = _text(item.get("python_code") or item.get("python"))
+        symbol = _text(item.get("symbol") or item.get("result") or item.get("name"))
+        clause = _text(item.get("clause_ref") or item.get("clause") or item.get("ref"))
+        title = _text(item.get("title"))
+        # An equation needs a formula or at least a symbol/clause to be useful.
+        if not (expression or python_code or symbol or clause):
+            continue
+        analysis = analyze_equation(
+            expression=expression, symbol=symbol, python_code=python_code
+        )
+        out.append(
+            CandidateEquation(
+                clause_ref=clause,
+                symbol=symbol,
+                title=title,
+                expression=analysis.expression or expression,
+                python_code=analysis.function_code,
+                ast_json=analysis.ast_json,
+                variables=_parse_variables(item.get("variables")),
+                latex=_text(item.get("latex") or item.get("notation")),
+                standard_name=_text(item.get("standard_name") or item.get("standard")),
+                standard_version=_text(item.get("standard_version") or item.get("version")),
+                valid=analysis.valid,
+                validation_note=analysis.note,
+                confidence=validate_confidence(item.get("confidence")),
+                supporting_text=_text(item.get("supporting_text")),
+            )
+        )
+    return out
+
+
 def parse_classification_response(text: str) -> ClassificationResult:
     """Parse raw model output into a validated :class:`ClassificationResult`."""
 
@@ -293,6 +361,7 @@ def parse_classification_response(text: str) -> ClassificationResult:
         risks=_parse_risks(data.get("risks")),
         relationships=_parse_relationships(data.get("relationships")),
         requirements=_parse_requirements(data.get("requirements")),
+        equations=_parse_equations(data.get("equations")),
     )
 
 

@@ -197,6 +197,35 @@ CREATE TABLE IF NOT EXISTS candidate_requirements(
 );
 CREATE INDEX IF NOT EXISTS idx_candidate_requirements_artifact ON candidate_requirements(artifact_id);
 CREATE INDEX IF NOT EXISTS idx_candidate_requirements_standard ON candidate_requirements(standard_name);
+-- Normative equations/formulas mined from a standard document, or loaded from a
+-- curated framework catalog. The machine-readable payload (``python_code``,
+-- ``ast_json``, ``variables``) is produced by ``semantic.equation_ast`` and is
+-- never executed; ``valid`` records whether the formula passed allowlist
+-- validation. Each row becomes an Equation knowledge object on consolidation.
+CREATE TABLE IF NOT EXISTS candidate_equations(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact_id TEXT NOT NULL,
+  standard_name TEXT,
+  standard_version TEXT,
+  clause_ref TEXT,
+  symbol TEXT,
+  title TEXT,
+  expression TEXT,
+  python_code TEXT,
+  ast_json TEXT,
+  variables TEXT,
+  latex TEXT,
+  valid INTEGER DEFAULT 0,
+  validation_note TEXT,
+  confidence REAL,
+  supporting_text TEXT,
+  knowledge_type TEXT DEFAULT 'OBSERVATION',
+  review_status TEXT DEFAULT 'NEW',
+  model TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_equations_artifact ON candidate_equations(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_equations_standard ON candidate_equations(standard_name);
 CREATE TABLE IF NOT EXISTS classification_runs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT,
@@ -394,6 +423,29 @@ CREATE TABLE IF NOT EXISTS compliance_requirements(
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_compliance_requirements_standard ON compliance_requirements(standard_object_id);
+-- Enriched metadata for Equation knowledge objects: the machine-readable payload
+-- (expression, generated Python, JSON AST, variables) the generic object model
+-- cannot carry. Like the other compliance tables it soft-references
+-- ``knowledge_objects.id`` by value so it survives re-consolidation.
+CREATE TABLE IF NOT EXISTS compliance_equations(
+  object_id TEXT PRIMARY KEY,
+  standard_object_id TEXT,
+  requirement_object_id TEXT,
+  clause_ref TEXT,
+  symbol TEXT,
+  title TEXT,
+  expression TEXT,
+  python_code TEXT,
+  ast_json TEXT,
+  variables TEXT,
+  latex TEXT,
+  valid INTEGER DEFAULT 0,
+  validation_note TEXT,
+  assessed_against_version TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_compliance_equations_standard ON compliance_equations(standard_object_id);
 CREATE TABLE IF NOT EXISTS compliance_assessments(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   requirement_object_id TEXT NOT NULL,
@@ -555,6 +607,12 @@ _EXPECTED_SEMANTIC_COLUMNS = {
         "title", "requirement_text", "obligation_level", "confidence",
         "supporting_text", "knowledge_type", "review_status", "model", "created_at",
     },
+    "candidate_equations": {
+        "id", "artifact_id", "standard_name", "standard_version", "clause_ref",
+        "symbol", "title", "expression", "python_code", "ast_json", "variables",
+        "latex", "valid", "validation_note", "confidence", "supporting_text",
+        "knowledge_type", "review_status", "model", "created_at",
+    },
     "classification_runs": {
         "id", "started_at", "completed_at", "model",
         "documents_processed", "documents_skipped", "errors",
@@ -666,6 +724,12 @@ _EXPECTED_COMPLIANCE_COLUMNS = {
         "requirement_text", "obligation_level", "assessed_against_version",
         "created_at", "updated_at",
     },
+    "compliance_equations": {
+        "object_id", "standard_object_id", "requirement_object_id", "clause_ref",
+        "symbol", "title", "expression", "python_code", "ast_json", "variables",
+        "latex", "valid", "validation_note", "assessed_against_version",
+        "created_at", "updated_at",
+    },
     "compliance_assessments": {
         "id", "requirement_object_id", "control_object_id", "status",
         "assessed_against_version", "rationale", "assessor", "assessed_at",
@@ -685,6 +749,7 @@ _EXPECTED_COMPLIANCE_COLUMNS = {
 _COMPLIANCE_DROP_ORDER = (
     "compliance_assessment_evidence",
     "compliance_assessments",
+    "compliance_equations",
     "compliance_requirements",
     "compliance_standards",
     "compliance_runs",

@@ -15,7 +15,11 @@ from __future__ import annotations
 
 import sqlite3
 
-from ..knowledge.ids import object_id, requirement_display_name
+from ..knowledge.ids import (
+    equation_display_name,
+    object_id,
+    requirement_display_name,
+)
 from . import repository as repo
 
 
@@ -81,4 +85,72 @@ def sync_requirements(conn: sqlite3.Connection, now: str) -> int:
     return synced
 
 
-__all__ = ["sync_requirements"]
+def sync_equations(conn: sqlite3.Connection, now: str) -> int:
+    """Populate compliance equation metadata from candidate equations.
+
+    Mirrors :func:`sync_requirements`: recomputes each equation's stable object id
+    the same way consolidation did and, only when that object exists, upserts the
+    enriched ``compliance_equations`` row (linking it to its Standard and, when
+    the clause matches, the Requirement that specifies it). Returns the count.
+    """
+
+    existing = repo.existing_object_ids(conn)
+    rows = conn.execute(
+        """
+        SELECT standard_name, standard_version, clause_ref, symbol, title,
+               expression, python_code, ast_json, variables, latex, valid,
+               validation_note, confidence
+        FROM candidate_equations
+        WHERE review_status != 'REJECTED'
+        ORDER BY confidence DESC
+        """
+    ).fetchall()
+
+    synced = 0
+    seen: set[str] = set()
+    for r in rows:
+        standard_name = (r["standard_name"] or "").strip()
+        clause_ref = r["clause_ref"] or ""
+        eq_name = equation_display_name(standard_name, r["symbol"] or "", clause_ref)
+        eq_id = object_id("Equation", eq_name)
+        if eq_id not in existing or eq_id in seen:
+            continue
+
+        std_id = ""
+        if standard_name:
+            candidate_std = object_id("Standard", standard_name)
+            if candidate_std in existing:
+                std_id = candidate_std
+
+        req_id = ""
+        if standard_name and clause_ref.strip():
+            req_name = requirement_display_name(standard_name, clause_ref, "")
+            candidate_req = object_id("Requirement", req_name)
+            if candidate_req in existing:
+                req_id = candidate_req
+
+        repo.upsert_equation(
+            conn,
+            object_id=eq_id,
+            standard_object_id=std_id,
+            requirement_object_id=req_id,
+            clause_ref=clause_ref,
+            symbol=r["symbol"] or "",
+            title=r["title"] or "",
+            expression=r["expression"] or "",
+            python_code=r["python_code"] or "",
+            ast_json=r["ast_json"] or "",
+            variables=r["variables"] or "[]",
+            latex=r["latex"] or "",
+            valid=bool(r["valid"]),
+            validation_note=r["validation_note"] or "",
+            assessed_against_version=r["standard_version"] or "",
+            now=now,
+        )
+        seen.add(eq_id)
+        synced += 1
+
+    return synced
+
+
+__all__ = ["sync_requirements", "sync_equations"]

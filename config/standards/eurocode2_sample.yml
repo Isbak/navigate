@@ -1,0 +1,94 @@
+# Curated catalog for EN 1992-1-1 (Eurocode 2) - illustrative excerpt.
+#
+# Import with:  catalog compliance import config/standards/eurocode2_sample.yml
+# then:         catalog consolidate && catalog compliance equations
+#
+# This is a trimmed teaching sample that demonstrates the *equation* extension to
+# the compliance layer: standards that state normative formulas, not just textual
+# clauses. Each equation carries a machine-readable, Python-syntax `expression`
+# and a `variables` list with units. The engine validates each formula against a
+# safe allowlist (it never executes it) and turns it into an Equation knowledge
+# object that goes through the same human approval as everything else.
+#
+# The same shape works for any equation-bearing standard (actuarial, financial,
+# metrology, ...), not just engineering codes - this file is only an example.
+
+standard:
+  name: EN 1992-1-1
+  version: "2004"
+  authority: CEN
+  jurisdiction: European Union
+
+# Optional: the clauses these equations belong to. Equations whose `clause_ref`
+# matches a requirement become linked to it (Requirement --specifies--> Equation).
+requirements:
+  - clause_ref: 6.2.2(1)
+    title: Members not requiring design shear reinforcement
+    text: >-
+      The design value for the shear resistance VRd,c is given by expression
+      (6.2.a) and shall be taken as the resistance of members not requiring
+      design shear reinforcement.
+    obligation_level: MANDATORY
+
+  - clause_ref: 3.1.6
+    title: Design compressive strength of concrete
+    text: >-
+      The design compressive strength fcd shall be taken as alpha_cc times the
+      characteristic compressive cylinder strength divided by the partial safety
+      factor for concrete.
+    obligation_level: MANDATORY
+
+equations:
+  - clause_ref: 6.2.2(1)
+    symbol: V_Rd_c
+    title: Design shear resistance (members without shear reinforcement)
+    # VRd,c = C_Rd,c * k * (100 * rho_l * f_ck)^(1/3) * b_w * d
+    expression: C_Rd_c * k * (100 * rho_l * f_ck) ** (1 / 3) * b_w * d
+    latex: "V_{Rd,c} = C_{Rd,c}\\, k\\,(100\\,\\rho_l f_{ck})^{1/3} b_w d"
+    variables:
+      - symbol: C_Rd_c
+        description: empirical coefficient (0.18 / gamma_c)
+        unit: "-"
+      - symbol: k
+        description: size effect factor, 1 + sqrt(200/d) <= 2.0
+        unit: "-"
+      - symbol: rho_l
+        description: longitudinal reinforcement ratio
+        unit: "-"
+      - symbol: f_ck
+        description: characteristic cylinder compressive strength
+        unit: MPa
+      - symbol: b_w
+        description: smallest web width of the cross-section
+        unit: mm
+      - symbol: d
+        description: effective depth of the cross-section
+        unit: mm
+
+  - clause_ref: 6.2.2(1)
+    symbol: k
+    title: Size effect factor
+    # k = 1 + sqrt(200 / d), limited to 2.0
+    expression: min(1 + sqrt(200 / d), 2.0)
+    latex: "k = 1 + \\sqrt{200/d} \\le 2.0"
+    variables:
+      - symbol: d
+        description: effective depth of the cross-section
+        unit: mm
+
+  - clause_ref: 3.1.6
+    symbol: f_cd
+    title: Design compressive strength of concrete
+    # fcd = alpha_cc * f_ck / gamma_c
+    expression: alpha_cc * f_ck / gamma_c
+    latex: "f_{cd} = \\alpha_{cc} f_{ck} / \\gamma_c"
+    variables:
+      - symbol: alpha_cc
+        description: coefficient for long-term effects (typically 1.0)
+        unit: "-"
+      - symbol: f_ck
+        description: characteristic cylinder compressive strength
+        unit: MPa
+      - symbol: gamma_c
+        description: partial safety factor for concrete
+        unit: "-"

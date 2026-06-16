@@ -81,6 +81,7 @@ ENTITY_TYPES = (
     "Risk",
     "Standard",
     "Requirement",
+    "Equation",
 )
 
 # The obligation strength a requirement carries; unknown values normalize to
@@ -98,6 +99,7 @@ RELATIONSHIP_PREDICATES = (
     "related_to",
     "mandated_by",
     "satisfies",
+    "specifies",
     "supersedes",
 )
 
@@ -169,6 +171,37 @@ class CandidateRequirement:
 
 
 @dataclass(frozen=True)
+class CandidateEquation:
+    """One normative equation/formula mined from a standard document.
+
+    Equations live in standards across many domains - a Eurocode design formula,
+    a Solvency II capital charge, a metrology correction - so this is the
+    ``CandidateRequirement`` pattern with a machine-readable math payload. The
+    raw fields come from the model/catalog; ``python_code``/``ast_json``/
+    ``valid`` are derived by :mod:`catalog.semantic.equation_ast` (which never
+    executes the formula). It becomes an ``Equation`` knowledge object on
+    consolidation and is approved like any other object.
+
+    ``variables`` is a list of ``{"symbol", "description", "unit"}`` mappings.
+    """
+
+    clause_ref: str
+    symbol: str = ""
+    title: str = ""
+    expression: str = ""
+    python_code: str = ""
+    ast_json: str = ""
+    variables: list[dict] = field(default_factory=list)
+    latex: str = ""
+    standard_name: str = ""
+    standard_version: str = ""
+    valid: bool = False
+    validation_note: str = ""
+    confidence: float = 0.0
+    supporting_text: str = ""
+
+
+@dataclass(frozen=True)
 class ClassificationResult:
     """Everything the LLM proposed for one document."""
 
@@ -183,6 +216,7 @@ class ClassificationResult:
     risks: list[CandidateRisk] = field(default_factory=list)
     relationships: list[CandidateRelationship] = field(default_factory=list)
     requirements: list[CandidateRequirement] = field(default_factory=list)
+    equations: list[CandidateEquation] = field(default_factory=list)
 
 
 __all__ = [
@@ -200,5 +234,6 @@ __all__ = [
     "CandidateRisk",
     "CandidateRelationship",
     "CandidateRequirement",
+    "CandidateEquation",
     "ClassificationResult",
 ]

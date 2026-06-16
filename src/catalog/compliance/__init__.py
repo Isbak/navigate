@@ -13,19 +13,20 @@ its own: the engine proposes, humans approve.
 from __future__ import annotations
 
 from .config import ComplianceConfig, load_compliance_config
-from .importer import ImportStats, import_standard, load_catalog
+from .importer import ImportStats, import_standard, load_catalog, load_equations
 from .models import (
     Assessment,
     AssessmentEvidence,
     AssessmentStatus,
     AssessStats,
     ComplianceReviewState,
+    Equation,
     ObligationLevel,
     Requirement,
     Standard,
 )
 from .service import assess, coverage, gaps, prove, review_assessment
-from .sync import sync_requirements
+from .sync import sync_equations, sync_requirements
 
 __all__ = [
     "ComplianceConfig",
@@ -33,11 +34,13 @@ __all__ = [
     "ImportStats",
     "import_standard",
     "load_catalog",
+    "load_equations",
     "Assessment",
     "AssessmentEvidence",
     "AssessmentStatus",
     "AssessStats",
     "ComplianceReviewState",
+    "Equation",
     "ObligationLevel",
     "Requirement",
     "Standard",
@@ -47,4 +50,5 @@ __all__ = [
     "prove",
     "review_assessment",
     "sync_requirements",
+    "sync_equations",
 ]

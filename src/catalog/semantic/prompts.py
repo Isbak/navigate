@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 
+from .equation_ast import ALLOWED_FUNCTIONS
 from .models import (
     DOCUMENT_TYPES,
     ENTITY_TYPES,
@@ -67,6 +68,22 @@ _EXAMPLE = {
          "text": "Rules for the effective use of cryptography shall be defined "
                  "and implemented.", "obligation_level": "MANDATORY",
          "confidence": 0.9, "supporting_text": "..."},
+    ],
+    "equations": [
+        {"standard_name": "EN 1992-1-1", "standard_version": "2004",
+         "clause_ref": "6.2.2(1)", "symbol": "V_Rd_c",
+         "title": "Design shear resistance",
+         "expression": "C_Rd_c * k * (100 * rho_l * f_ck) ** (1/3) * b_w * d",
+         "variables": [
+             {"symbol": "C_Rd_c", "description": "empirical coefficient", "unit": "-"},
+             {"symbol": "k", "description": "size effect factor", "unit": "-"},
+             {"symbol": "rho_l", "description": "longitudinal reinforcement ratio", "unit": "-"},
+             {"symbol": "f_ck", "description": "characteristic concrete strength", "unit": "MPa"},
+             {"symbol": "b_w", "description": "web width", "unit": "mm"},
+             {"symbol": "d", "description": "effective depth", "unit": "mm"},
+         ],
+         "latex": "V_{Rd,c} = C_{Rd,c} k (100 \\rho_l f_{ck})^{1/3} b_w d",
+         "confidence": 0.88, "supporting_text": "..."},
     ],
 }
 
@@ -129,6 +146,19 @@ Analyze the document below and return a single JSON object with these keys:
   words, and "obligation_level" is one of [{_bullet(OBLIGATION_LEVELS)}]
   (MANDATORY for "shall"/"must", RECOMMENDED for "should", OPTIONAL for "may").
   Leave this array empty for ordinary documents.
+- "equations": array of {{"standard_name": str, "standard_version": str,
+  "clause_ref": str, "symbol": str, "title": str, "expression": str,
+  "variables": [{{"symbol": str, "description": str, "unit": str}}],
+  "latex": str, "confidence": 0.0-1.0, "supporting_text": str}}. ONLY populate
+  this when the document is a standard that states normative *formulas/equations*
+  (e.g. an engineering design code, an actuarial/financial standard, a metrology
+  spec). "symbol" is the computed result's symbol (e.g. "V_Rd_c"); "expression"
+  is the right-hand side as a single Python expression using the standard's
+  variable symbols and only arithmetic plus these functions:
+  [{_bullet(tuple(sorted(ALLOWED_FUNCTIONS)))}] (use ** for powers, * for every
+  multiplication). List every variable the expression uses in "variables" with
+  its unit, and put the original notation in "latex". Leave this array empty for
+  documents that contain no formulas.
 
 Rules:
 - Use the controlled vocabularies above. If document_type does not fit, use

@@ -32,6 +32,7 @@ _CLASS_COMMENTS = {
     "Process": "A repeatable process or workflow.",
     "Standard": "A standard, regulation, or policy family that states obligations.",
     "Requirement": "A normative clause, article, or control of a standard.",
+    "Equation": "A normative formula/equation stated by a standard.",
 }
 
 # Relationship predicate -> (label, comment). Keyed by the camelCase ontology
@@ -47,6 +48,7 @@ _PREDICATE_COMMENTS = {
     "references": "The subject references the object.",
     "mandatedBy": "The subject requirement is mandated by the object standard.",
     "satisfies": "The subject control satisfies the object requirement.",
+    "specifies": "The subject requirement specifies the object equation.",
     "supersedes": "The subject supersedes the object it replaces.",
 }
 

@@ -27,6 +27,7 @@ and optional ``standard_name,standard_version``.
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ import yaml
 
 from ..db import connect, init_db
 from ..knowledge.ids import slugify
+from ..semantic.equation_ast import analyze_equation
 
 # Curated rows are trusted (a maintainer entered them), so they enter at high
 # confidence; consolidation and human review still gate what becomes trusted.
@@ -52,6 +54,7 @@ class ImportStats:
     standard_name: str = ""
     standard_version: str = ""
     requirements_imported: int = 0
+    equations_imported: int = 0
     artifact_id: str = ""
 
     def as_dict(self) -> dict:
@@ -59,6 +62,7 @@ class ImportStats:
             "standard_name": self.standard_name,
             "standard_version": self.standard_version,
             "requirements_imported": self.requirements_imported,
+            "equations_imported": self.equations_imported,
             "artifact_id": self.artifact_id,
         }
 
@@ -109,6 +113,87 @@ def load_catalog(path: str | Path) -> tuple[dict, list[dict]]:
     raise ValueError(f"Unsupported catalog format: {p.suffix} (use .yml or .csv)")
 
 
+def load_equations(path: str | Path) -> list[dict]:
+    """Parse the optional ``equations:`` list from a YAML catalog.
+
+    Equations carry a nested ``variables`` list, so they are only supported in the
+    YAML format; a CSV catalog (or a YAML without equations) yields an empty list.
+    """
+
+    p = Path(path)
+    if p.suffix.lower() not in {".yml", ".yaml"}:
+        return []
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        return []
+    equations = data.get("equations")
+    return [e for e in equations if isinstance(e, dict)] if isinstance(equations, list) else []
+
+
+def _normalize_variables(value: object) -> list[dict]:
+    out: list[dict] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                symbol = str(item.get("symbol") or item.get("name") or "").strip()
+                if not symbol:
+                    continue
+                out.append(
+                    {
+                        "symbol": symbol,
+                        "description": str(item.get("description") or "").strip(),
+                        "unit": str(item.get("unit") or item.get("units") or "").strip(),
+                    }
+                )
+            elif isinstance(item, str) and item.strip():
+                out.append({"symbol": item.strip(), "description": "", "unit": ""})
+    return out
+
+
+def _equation_records(
+    equations: list[dict], *, artifact_id: str, standard_name: str,
+    standard_version: str, now: str,
+) -> list[tuple]:
+    """Validate and shape curated equation rows for ``candidate_equations``."""
+
+    records: list[tuple] = []
+    for row in equations:
+        symbol = str(row.get("symbol") or row.get("result") or "").strip()
+        clause = str(row.get("clause_ref") or row.get("clause") or "").strip()
+        title = str(row.get("title") or "").strip()
+        expression = str(row.get("expression") or row.get("formula") or "").strip()
+        python_code = str(row.get("python_code") or row.get("python") or "").strip()
+        if not (symbol or expression or clause):
+            continue
+        analysis = analyze_equation(
+            expression=expression, symbol=symbol, python_code=python_code
+        )
+        records.append(
+            (
+                artifact_id,
+                str(row.get("standard_name") or standard_name).strip(),
+                str(row.get("standard_version") or standard_version).strip(),
+                clause,
+                symbol,
+                title,
+                analysis.expression or expression,
+                analysis.function_code,
+                analysis.ast_json,
+                json.dumps(_normalize_variables(row.get("variables"))),
+                str(row.get("latex") or row.get("notation") or "").strip(),
+                1 if analysis.valid else 0,
+                analysis.note,
+                _CURATED_CONFIDENCE,
+                str(row.get("supporting_text") or expression or title).strip(),
+                "OBSERVATION",
+                "NEW",
+                _CURATED_MODEL,
+                now,
+            )
+        )
+    return records
+
+
 def import_standard(
     db_path: str | Path, catalog_path: str | Path
 ) -> ImportStats:
@@ -120,6 +205,7 @@ def import_standard(
     """
 
     standard, rows = load_catalog(catalog_path)
+    equations = load_equations(catalog_path)
     standard_name = str(standard.get("name") or "").strip()
     standard_version = str(standard.get("version") or "").strip()
     artifact_id = f"import_{slugify(standard_name or Path(catalog_path).stem)}"
@@ -135,6 +221,10 @@ def import_standard(
         # Replace any prior curated import for this standard.
         conn.execute(
             "DELETE FROM candidate_requirements WHERE artifact_id = ? AND model = ?",
+            (artifact_id, _CURATED_MODEL),
+        )
+        conn.execute(
+            "DELETE FROM candidate_equations WHERE artifact_id = ? AND model = ?",
             (artifact_id, _CURATED_MODEL),
         )
         records = []
@@ -171,10 +261,29 @@ def import_standard(
             """,
             records,
         )
+        equation_records = _equation_records(
+            equations,
+            artifact_id=artifact_id,
+            standard_name=standard_name,
+            standard_version=standard_version,
+            now=now,
+        )
+        conn.executemany(
+            """
+            INSERT INTO candidate_equations(
+                artifact_id, standard_name, standard_version, clause_ref, symbol,
+                title, expression, python_code, ast_json, variables, latex, valid,
+                validation_note, confidence, supporting_text,
+                knowledge_type, review_status, model, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            equation_records,
+        )
         conn.commit()
         stats.requirements_imported = len(records)
+        stats.equations_imported = len(equation_records)
 
     return stats
 
 
-__all__ = ["ImportStats", "load_catalog", "import_standard"]
+__all__ = ["ImportStats", "load_catalog", "load_equations", "import_standard"]

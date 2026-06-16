@@ -54,6 +54,7 @@ PREDICATE_MAP = {
     "related_to": "relatedTo",
     "mandated_by": "mandatedBy",
     "satisfies": "satisfies",
+    "specifies": "specifies",
     "supersedes": "supersedes",
 }
 

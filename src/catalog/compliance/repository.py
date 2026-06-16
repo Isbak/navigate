@@ -84,6 +84,115 @@ def upsert_requirement(
     )
 
 
+def upsert_equation(
+    conn: sqlite3.Connection,
+    *,
+    object_id: str,
+    standard_object_id: str,
+    requirement_object_id: str,
+    clause_ref: str,
+    symbol: str,
+    title: str,
+    expression: str,
+    python_code: str,
+    ast_json: str,
+    variables: str,
+    latex: str,
+    valid: bool,
+    validation_note: str,
+    assessed_against_version: str,
+    now: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO compliance_equations(
+            object_id, standard_object_id, requirement_object_id, clause_ref,
+            symbol, title, expression, python_code, ast_json, variables, latex,
+            valid, validation_note, assessed_against_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(object_id) DO UPDATE SET
+            standard_object_id=excluded.standard_object_id,
+            requirement_object_id=excluded.requirement_object_id,
+            clause_ref=excluded.clause_ref, symbol=excluded.symbol,
+            title=excluded.title, expression=excluded.expression,
+            python_code=excluded.python_code, ast_json=excluded.ast_json,
+            variables=excluded.variables, latex=excluded.latex,
+            valid=excluded.valid, validation_note=excluded.validation_note,
+            assessed_against_version=excluded.assessed_against_version,
+            updated_at=excluded.updated_at
+        """,
+        (object_id, standard_object_id, requirement_object_id, clause_ref, symbol,
+         title, expression, python_code, ast_json, variables, latex,
+         1 if valid else 0, validation_note, assessed_against_version, now, now),
+    )
+
+
+def equations(
+    conn: sqlite3.Connection, standard_object_id: str | None = None
+) -> list[sqlite3.Row]:
+    sql = """
+        SELECT e.*, o.name AS object_name, o.status AS object_status
+        FROM compliance_equations e
+        LEFT JOIN knowledge_objects o ON o.id = e.object_id
+    """
+    params: tuple = ()
+    if standard_object_id:
+        sql += " WHERE e.standard_object_id = ?"
+        params = (standard_object_id,)
+    sql += " ORDER BY e.standard_object_id, e.clause_ref, e.symbol, e.object_id"
+    return conn.execute(sql, params).fetchall()
+
+
+def get_equation(conn: sqlite3.Connection, object_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT e.*, o.name AS object_name, o.status AS object_status
+        FROM compliance_equations e
+        LEFT JOIN knowledge_objects o ON o.id = e.object_id
+        WHERE e.object_id = ?
+        """,
+        (object_id,),
+    ).fetchone()
+
+
+def find_equation_id(conn: sqlite3.Connection, term: str) -> str | None:
+    """Resolve a free-text term to an equation object id.
+
+    Matches the object id exactly, then the symbol, then the clause ref, then a
+    case-insensitive fragment of the object name.
+    """
+
+    row = conn.execute(
+        "SELECT object_id FROM compliance_equations WHERE object_id = ?", (term,)
+    ).fetchone()
+    if row:
+        return row["object_id"]
+    row = conn.execute(
+        "SELECT object_id FROM compliance_equations WHERE symbol = ? LIMIT 1", (term,)
+    ).fetchone()
+    if row:
+        return row["object_id"]
+    row = conn.execute(
+        "SELECT object_id FROM compliance_equations WHERE clause_ref = ? LIMIT 1",
+        (term,),
+    ).fetchone()
+    if row:
+        return row["object_id"]
+    row = conn.execute(
+        """
+        SELECT e.object_id
+        FROM compliance_equations e
+        LEFT JOIN knowledge_objects o ON o.id = e.object_id
+        WHERE LOWER(o.name) LIKE '%' || LOWER(?) || '%'
+           OR LOWER(e.title) LIKE '%' || LOWER(?) || '%'
+        ORDER BY LENGTH(o.name)
+        LIMIT 1
+        """,
+        (term, term),
+    ).fetchone()
+    return row["object_id"] if row else None
+
+
 def existing_object_ids(conn: sqlite3.Connection) -> set[str]:
     """Ids of knowledge objects that currently exist (for soft-ref validation)."""
 
@@ -441,6 +550,10 @@ __all__ = [
     "MANDATED_BY",
     "upsert_standard",
     "upsert_requirement",
+    "upsert_equation",
+    "equations",
+    "get_equation",
+    "find_equation_id",
     "existing_object_ids",
     "standards",
     "get_standard",

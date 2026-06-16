@@ -8,6 +8,7 @@ CLI. ``POST /assess`` runs the assessment engine as a tracked background job.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -25,6 +26,8 @@ from ..schemas import (
     ActionResponse,
     ComplianceAssessment,
     ComplianceCoverageResponse,
+    ComplianceEquation,
+    ComplianceEquationVariable,
     ComplianceGap,
     ComplianceProofResponse,
     ComplianceRequirement,
@@ -109,6 +112,62 @@ def requirement(
         obligation_level=r["obligation_level"] or "",
         status=r["object_status"],
     )
+
+
+def _equation(r: sqlite3.Row) -> ComplianceEquation:
+    try:
+        raw_vars = json.loads(r["variables"] or "[]")
+    except (TypeError, ValueError):
+        raw_vars = []
+    variables = [
+        ComplianceEquationVariable(
+            symbol=str(v.get("symbol", "")),
+            description=str(v.get("description", "")),
+            unit=str(v.get("unit", "")),
+        )
+        for v in raw_vars
+        if isinstance(v, dict) and v.get("symbol")
+    ]
+    return ComplianceEquation(
+        object_id=r["object_id"],
+        name=r["object_name"] or r["symbol"] or r["object_id"],
+        standard_object_id=r["standard_object_id"] or "",
+        requirement_object_id=r["requirement_object_id"] or "",
+        clause_ref=r["clause_ref"] or "",
+        symbol=r["symbol"] or "",
+        title=r["title"] or "",
+        expression=r["expression"] or "",
+        python_code=r["python_code"] or "",
+        ast_json=r["ast_json"] or "",
+        variables=variables,
+        latex=r["latex"] or "",
+        valid=bool(r["valid"]),
+        validation_note=r["validation_note"] or "",
+        status=r["object_status"],
+    )
+
+
+@router.get("/equations", response_model=PaginatedResponse[ComplianceEquation])
+def equations(
+    conn: sqlite3.Connection = Depends(get_db),
+    page: Pagination = Depends(pagination_params),
+    standard: str | None = Query(None, description="filter by standard object id"),
+) -> PaginatedResponse[ComplianceEquation]:
+    rows = comp_repo.equations(conn, standard)
+    total = len(rows)
+    window = rows[page.offset : page.offset + page.limit]
+    items = [_equation(r) for r in window]
+    return PaginatedResponse(items=items, limit=page.limit, offset=page.offset, total=total)
+
+
+@router.get("/equations/{object_id}", response_model=ComplianceEquation)
+def equation(
+    object_id: str, conn: sqlite3.Connection = Depends(get_db)
+) -> ComplianceEquation:
+    r = comp_repo.get_equation(conn, object_id)
+    if r is None:
+        raise not_found("Equation not found", object_id=object_id)
+    return _equation(r)
 
 
 @router.get("/coverage", response_model=ComplianceCoverageResponse)

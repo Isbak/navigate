@@ -29,8 +29,21 @@ _CANDIDATE_SOURCES = (
 )
 
 
+def _in_scope(artifact_id: str, allowed: set[str] | None) -> bool:
+    """True when ``artifact_id`` may be consolidated.
+
+    ``allowed is None`` disables scoping entirely (full backward compatibility);
+    otherwise only ids in the set - the in-scope file-backed and curated ids
+    computed by :mod:`catalog.knowledge.scope` - pass.
+    """
+
+    return allowed is None or artifact_id in allowed
+
+
 def gather_mentions(
-    conn: sqlite3.Connection, min_confidence: float = 0.0
+    conn: sqlite3.Connection,
+    min_confidence: float = 0.0,
+    allowed_artifact_ids: set[str] | None = None,
 ) -> list[RawMention]:
     """Read every entity proposal from the semantic layer as a flat list.
 
@@ -38,6 +51,10 @@ def gather_mentions(
     ``candidate_risks`` (fixed type per table) and ``candidate_entities`` (type
     in a column). REJECTED proposals are skipped; everything else - including the
     default NEW - is fair game for consolidation.
+
+    When ``allowed_artifact_ids`` is given, mentions from any other artifact are
+    dropped so only documents under a configured source folder (plus curated
+    imports) are consolidated.
     """
 
     out: list[RawMention] = []
@@ -61,6 +78,7 @@ def gather_mentions(
                 source_text=r["supporting_text"] or "",
             )
             for r in rows
+            if _in_scope(r["artifact_id"], allowed_artifact_ids)
         )
 
     entity_rows = conn.execute(
@@ -82,13 +100,14 @@ def gather_mentions(
             source_text=r["supporting_text"] or "",
         )
         for r in entity_rows
+        if _in_scope(r["artifact_id"], allowed_artifact_ids)
     )
 
     # Compliance: each candidate requirement yields a Requirement mention (named
     # by its standard + clause locator) and, when a standard is named, a Standard
     # mention - so both become first-class knowledge objects the rest of the
     # pipeline scores, governs, and projects to RDF like any other.
-    for r in gather_candidate_requirements(conn, min_confidence):
+    for r in gather_candidate_requirements(conn, min_confidence, allowed_artifact_ids):
         conf = r["confidence"] if r["confidence"] is not None else 0.0
         evidence = (r["supporting_text"] or r["requirement_text"] or "").strip()
         req_name = requirement_display_name(
@@ -118,7 +137,7 @@ def gather_mentions(
     # Compliance: each candidate equation yields an Equation mention (named by its
     # standard + result symbol) and, when a standard is named, a Standard mention -
     # so a formula-only standard still gets a first-class Standard object too.
-    for r in gather_candidate_equations(conn, min_confidence):
+    for r in gather_candidate_equations(conn, min_confidence, allowed_artifact_ids):
         conf = r["confidence"] if r["confidence"] is not None else 0.0
         eq_name = equation_display_name(
             r["standard_name"] or "", r["symbol"] or "", r["clause_ref"] or ""
@@ -150,15 +169,18 @@ def gather_mentions(
 
 
 def gather_candidate_equations(
-    conn: sqlite3.Connection, min_confidence: float = 0.0
+    conn: sqlite3.Connection,
+    min_confidence: float = 0.0,
+    allowed_artifact_ids: set[str] | None = None,
 ) -> list[sqlite3.Row]:
     """Read candidate equation rows (LLM-mined or curated import).
 
     REJECTED proposals are skipped; a row needs at least a symbol, an expression,
-    or a clause ref to be usable.
+    or a clause ref to be usable. ``allowed_artifact_ids`` restricts the result to
+    in-scope artifacts (see :func:`gather_mentions`).
     """
 
-    return conn.execute(
+    rows = conn.execute(
         """
         SELECT artifact_id, standard_name, standard_version, clause_ref, symbol,
                title, expression, python_code, ast_json, variables, latex, valid,
@@ -173,18 +195,22 @@ def gather_candidate_equations(
         """,
         (min_confidence, ReviewState.REJECTED.value),
     ).fetchall()
+    return [r for r in rows if _in_scope(r["artifact_id"], allowed_artifact_ids)]
 
 
 def gather_candidate_requirements(
-    conn: sqlite3.Connection, min_confidence: float = 0.0
+    conn: sqlite3.Connection,
+    min_confidence: float = 0.0,
+    allowed_artifact_ids: set[str] | None = None,
 ) -> list[sqlite3.Row]:
     """Read candidate requirement clauses (LLM-mined or curated import).
 
     REJECTED proposals are skipped; a row needs at least a clause ref or some
-    requirement text to be usable.
+    requirement text to be usable. ``allowed_artifact_ids`` restricts the result
+    to in-scope artifacts (see :func:`gather_mentions`).
     """
 
-    return conn.execute(
+    rows = conn.execute(
         """
         SELECT artifact_id, standard_name, standard_version, clause_ref, title,
                requirement_text, obligation_level, confidence, supporting_text
@@ -198,18 +224,23 @@ def gather_candidate_requirements(
         """,
         (min_confidence, ReviewState.REJECTED.value),
     ).fetchall()
+    return [r for r in rows if _in_scope(r["artifact_id"], allowed_artifact_ids)]
 
 
 def gather_candidate_relationships(
-    conn: sqlite3.Connection, min_confidence: float = 0.0
+    conn: sqlite3.Connection,
+    min_confidence: float = 0.0,
+    allowed_artifact_ids: set[str] | None = None,
 ) -> list[sqlite3.Row]:
     """Read per-document relationship proposals from the semantic layer.
 
     These have free-text ``subject``/``object`` names that the service resolves
     against the consolidated objects before persisting a knowledge relationship.
+    ``allowed_artifact_ids`` restricts the result to in-scope artifacts (see
+    :func:`gather_mentions`).
     """
 
-    return conn.execute(
+    rows = conn.execute(
         """
         SELECT artifact_id, subject, predicate, object, confidence, supporting_text
         FROM candidate_relationships
@@ -220,6 +251,7 @@ def gather_candidate_relationships(
         """,
         (min_confidence, ReviewState.REJECTED.value),
     ).fetchall()
+    return [r for r in rows if _in_scope(r["artifact_id"], allowed_artifact_ids)]
 
 
 # -- write side ---------------------------------------------------------------

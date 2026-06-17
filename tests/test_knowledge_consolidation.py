@@ -99,6 +99,60 @@ def test_every_object_has_evidence(tmp_path):
     assert orphans == []
 
 
+def _insert_artifact(conn, *, path, artifact_id, scan_status="UNCHANGED"):
+    from pathlib import Path
+
+    conn.execute(
+        """
+        INSERT INTO artifacts(
+            path, id, filename, file_type, size_bytes, scan_status
+        ) VALUES (?, ?, ?, 'txt', 1, ?)
+        """,
+        (str(path), artifact_id, Path(path).name, scan_status),
+    )
+
+
+def test_consolidation_scopes_to_configured_sources(tmp_path):
+    """Only documents under a configured source folder are consolidated; curated
+    imports always count; out-of-scope candidates persist and return on re-add."""
+
+    db = tmp_path / "catalog.sqlite"
+    keep = tmp_path / "keep"
+    drop = tmp_path / "drop"
+    keep.mkdir()
+    drop.mkdir()
+    init_db(db)
+    with connect(db) as conn:
+        _insert_artifact(conn, path=keep / "a.txt", artifact_id="doc_keep")
+        _insert_artifact(conn, path=drop / "b.txt", artifact_id="doc_drop")
+        _seed_capability(conn, "doc_keep", "Kept Capability")
+        _seed_capability(conn, "doc_drop", "Dropped Capability")
+        _seed_capability(conn, "import_iso", "Curated Standard Thing")  # no artifact
+        conn.commit()
+
+    # Scope to ``keep`` only: drop's object is excluded, curated import survives.
+    consolidate(db, source_paths=[str(keep)])
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_kept_capability") is not None
+        assert repo.get_object(conn, "capability_dropped_capability") is None
+        assert repo.get_object(conn, "capability_curated_standard_thing") is not None
+        # The out-of-scope candidate row is untouched in the semantic layer.
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM candidate_capabilities WHERE artifact_id = 'doc_drop'"
+        ).fetchone()[0]
+        assert remaining == 1
+
+    # Re-add ``drop`` to scope: its object returns (candidates were retained).
+    consolidate(db, source_paths=[str(keep), str(drop)])
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_dropped_capability") is not None
+
+    # source_paths=None disables scoping entirely (legacy behavior).
+    consolidate(db, source_paths=None)
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_dropped_capability") is not None
+
+
 def test_evidence_fallback_when_no_quotes(tmp_path):
     db = tmp_path / "catalog.sqlite"
     init_db(db)

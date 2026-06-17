@@ -120,6 +120,19 @@ def mark_stale_for_artifact(
     return cur.rowcount
 
 
+def delete_for_artifact(conn: sqlite3.Connection, source_artifact_id: str) -> int:
+    """Hard-delete every link discovered from an artifact. Returns the count.
+
+    Used by the ``clean-source`` purge: unlike :func:`mark_stale_for_artifact`,
+    this removes the rows outright because the source document is being purged.
+    """
+
+    cur = conn.execute(
+        "DELETE FROM links WHERE source_artifact_id = ?", (source_artifact_id,)
+    )
+    return cur.rowcount
+
+
 def record_link_scan_run(
     conn: sqlite3.Connection,
     *,

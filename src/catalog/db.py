@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -829,6 +830,40 @@ def mark_deleted(conn: sqlite3.Connection, path: str, scanned_at: str) -> None:
         "UPDATE artifacts SET scan_status='DELETED', last_scanned_at=? WHERE path=?",
         (scanned_at, path),
     )
+
+
+def artifacts_under_path(conn: sqlite3.Connection, prefix: str) -> list[sqlite3.Row]:
+    """Return artifact rows whose path is the given file or under the given folder.
+
+    ``prefix`` is resolved the same way the scanner stores paths
+    (``str(Path(...).resolve())``) and matched with :func:`os.path.commonpath` so
+    ``/foo`` does not spuriously match ``/foobar``. An exact file path matches the
+    single artifact; a folder matches every artifact beneath it.
+    """
+
+    target = str(Path(prefix).expanduser().resolve())
+    out: list[sqlite3.Row] = []
+    for row in conn.execute("SELECT * FROM artifacts"):
+        path = row["path"]
+        if path == target:
+            out.append(row)
+            continue
+        try:
+            if os.path.commonpath([path, target]) == target:
+                out.append(row)
+        except ValueError:
+            continue
+    return out
+
+
+def delete_artifacts_by_paths(conn: sqlite3.Connection, paths: list[str]) -> int:
+    """Hard-delete the artifact rows for the given exact paths. Returns the count."""
+
+    deleted = 0
+    for path in paths:
+        cur = conn.execute("DELETE FROM artifacts WHERE path = ?", (path,))
+        deleted += cur.rowcount
+    return deleted
 
 
 def record_scan_run(conn: sqlite3.Connection, started_at: str, finished_at: str, stats: dict) -> int:

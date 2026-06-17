@@ -1,0 +1,29 @@
+# Document extraction configuration.
+#
+# Extraction turns raw files (PDF, DOCX, PPTX, XLSX, ...) into the plain text
+# the rest of the pipeline reads. Two modes are available:
+#
+#   fast          text-only extraction (offline, no API calls). Good default.
+#   high-quality  for PDFs, a vision pass transcribes the pages that the fast
+#                 pass cannot read well (scanned pages, figures, and equations
+#                 rendered as images) into Markdown + LaTeX. This calls the
+#                 Claude provider configured in config/llm.yml, so it needs
+#                 network access and ANTHROPIC_API_KEY.
+#
+# The vision pass is *selective*: the fast text pass runs first and only the
+# pages it cannot read well are rendered to images and sent to the model, so
+# cost stays proportional to the suspect pages rather than the whole document.
+
+mode: fast            # fast | high-quality
+
+vision:
+  # Render resolution for flagged pages. Higher is sharper but larger/slower.
+  dpi: 200
+  # Hard cap on how many pages are rendered+transcribed per PDF (bounds cost).
+  max_pages: 50
+  # A page whose fast-extracted text is shorter than this (and that carries
+  # images or vector drawings) is treated as "needs vision".
+  min_text_chars: 200
+  # Characters that hint at a (possibly garbled) equation on the page. Their
+  # presence flags the page for vision even when it has plenty of text.
+  equation_cues: "∑∫∏√≤≥±×÷αβγδθλμπσφω"

@@ -10,6 +10,7 @@ from pathlib import Path
 from .config import load_config
 from .db import DatabaseNotWritableError, connect, init_db, latest_scan_run
 from .extraction import extract_all
+from .extractors.config import MODE_FAST, VALID_MODES, load_extraction_config
 from .compliance.cli import add_compliance_parser, run_compliance
 from .governance import service as gov_service
 from .governance.cli import add_governance_parser, run_governance
@@ -69,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache", default="cache")
     parser.add_argument("--link-config", default="config/link_patterns.yml")
     parser.add_argument("--llm-config", default="config/llm.yml")
+    parser.add_argument("--extract-config", default="config/extraction.yml")
     parser.add_argument("--jena-config", default="config/jena.yml")
     parser.add_argument("--governance-config", default="config/governance.yml")
     parser.add_argument("--compliance-config", default="config/compliance.yml")
@@ -88,7 +90,26 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("watch")
     sub.add_parser("stats")
     sub.add_parser("show-duplicates")
-    sub.add_parser("extract")
+
+    extract = sub.add_parser("extract")
+    extract.add_argument(
+        "--mode",
+        choices=VALID_MODES,
+        default=None,
+        help="extraction mode (default from config/extraction.yml)",
+    )
+    extract.add_argument(
+        "--artifact-id",
+        action="append",
+        default=None,
+        help="re-extract only this artifact id (repeatable)",
+    )
+    extract.add_argument(
+        "--path-glob",
+        default=None,
+        help="re-extract only artifacts whose path matches this glob, "
+        "e.g. '*.pdf' or '**/eurocode*'",
+    )
 
     discover = sub.add_parser("discover-links")
     discover.add_argument("--artifact-id", default=None)
@@ -103,7 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("export-links-csv")
 
     classify = sub.add_parser("classify")
-    classify.add_argument("--artifact-id", default=None)
+    classify.add_argument(
+        "--artifact-id",
+        action="append",
+        default=None,
+        help="classify only this artifact id (repeatable)",
+    )
     classify.add_argument("--force", action="store_true")
 
     sub.add_parser("classification-stats")
@@ -277,8 +303,15 @@ def _cmd_show_duplicates(args) -> None:
 
 def _cmd_extract(args) -> None:
     init_db(args.db)
-    summary = extract_all(args.db, args.cache)
-    print("Extraction complete:")
+    mode = args.mode or load_extraction_config(args.extract_config).mode
+    summary = extract_all(
+        args.db,
+        args.cache,
+        mode=mode,
+        artifact_ids=args.artifact_id,
+        path_glob=args.path_glob,
+    )
+    print(f"Extraction complete (mode: {mode}):")
     print(f"Artifacts processed: {_fmt(summary['artifacts_processed'])}")
     print(f"Links extracted: {_fmt(summary['links_extracted'])}")
     print(f"Errors: {_fmt(summary['errors'])}")
@@ -415,6 +448,8 @@ def _cmd_classify(args) -> None:
         artifact_id=args.artifact_id,
         force=args.force,
         max_input_chars=config.max_input_chars,
+        chunk_overlap=config.chunk_overlap,
+        max_chunks=config.max_chunks,
         progress_callback=_show_progress,
     )
     print("Classification complete:")

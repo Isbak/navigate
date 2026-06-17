@@ -102,6 +102,8 @@ def _run_classify(ctx: JobContext, artifact_id: str | None) -> dict:
         provider=provider,
         artifact_id=artifact_id,
         max_input_chars=config.max_input_chars,
+        chunk_overlap=config.chunk_overlap,
+        max_chunks=config.max_chunks,
     )
     return {
         "documents_processed": stats.documents_processed,

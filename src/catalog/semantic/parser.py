@@ -345,6 +345,78 @@ def _parse_equations(value: object) -> list[CandidateEquation]:
     return out
 
 
+def _dedupe(items: list, key) -> list:
+    """Keep the highest-confidence item per natural key, preserving order."""
+
+    best: dict = {}
+    for item in items:
+        k = key(item)
+        current = best.get(k)
+        if current is None or item.confidence > current.confidence:
+            best[k] = item
+    return list(best.values())
+
+
+def merge_classification_results(
+    results: list[ClassificationResult],
+) -> ClassificationResult:
+    """Merge per-chunk results for one document into a single result.
+
+    The document-level fields (type and summaries) are taken from the chunk the
+    model was most confident about; the list fields are concatenated and then
+    deduped by a natural key, keeping the highest-confidence instance. This lets
+    equations/entities discovered deep in a long document survive alongside
+    those found near the top.
+    """
+
+    if not results:
+        return ClassificationResult(document_type="Other", type_confidence=0.0)
+    if len(results) == 1:
+        return results[0]
+
+    primary = max(results, key=lambda r: r.type_confidence)
+
+    domains: list[DomainScore] = []
+    entities: list[CandidateEntity] = []
+    capabilities: list[CandidateCapability] = []
+    decisions: list[CandidateDecision] = []
+    risks: list[CandidateRisk] = []
+    relationships: list[CandidateRelationship] = []
+    requirements: list[CandidateRequirement] = []
+    equations: list[CandidateEquation] = []
+    for r in results:
+        domains += r.domains
+        entities += r.entities
+        capabilities += r.capabilities
+        decisions += r.decisions
+        risks += r.risks
+        relationships += r.relationships
+        requirements += r.requirements
+        equations += r.equations
+
+    return ClassificationResult(
+        document_type=primary.document_type,
+        type_confidence=primary.type_confidence,
+        short_summary=primary.short_summary,
+        long_summary=primary.long_summary,
+        domains=_dedupe(domains, lambda d: d.domain.lower()),
+        entities=_dedupe(entities, lambda e: (e.entity_type, e.name.lower())),
+        capabilities=_dedupe(capabilities, lambda c: c.name.lower()),
+        decisions=_dedupe(decisions, lambda d: d.decision_text.lower()),
+        risks=_dedupe(risks, lambda r: r.risk_description.lower()),
+        relationships=_dedupe(
+            relationships, lambda x: (x.subject.lower(), x.predicate, x.object.lower())
+        ),
+        requirements=_dedupe(
+            requirements, lambda q: (q.standard_name.lower(), q.clause_ref.lower())
+        ),
+        equations=_dedupe(
+            equations,
+            lambda e: (e.standard_name.lower(), e.clause_ref.lower(), e.symbol.lower()),
+        ),
+    )
+
+
 def parse_classification_response(text: str) -> ClassificationResult:
     """Parse raw model output into a validated :class:`ClassificationResult`."""
 
@@ -369,4 +441,5 @@ __all__ = [
     "ParseError",
     "validate_confidence",
     "parse_classification_response",
+    "merge_classification_results",
 ]

@@ -36,6 +36,13 @@ openai:
   base_url: https://api.openai.com/v1
   timeout: 120
 
-# Hard cap on how much extracted text is sent to the model per document. Longer
-# documents are truncated; classification works on the head of the document.
+# Size of one chunk sent to the model. Long documents are split into chunks of
+# this many characters and classified chunk by chunk, then merged - so equations
+# and content beyond the head of the document are no longer lost.
 max_input_chars: 12000
+# Characters of overlap between consecutive chunks, so an equation or sentence
+# straddling a boundary is still seen whole by at least one chunk.
+chunk_overlap: 500
+# Hard cap on how many chunks are processed per document (bounds cost on very
+# long files). Remaining text beyond this many chunks is skipped.
+max_chunks: 20

@@ -249,3 +249,60 @@ def test_approve_confidence_interval_command(governed_db, capsys):
         assert conn.execute(
             "SELECT COUNT(*) FROM knowledge_relationships WHERE review_status = 'APPROVED'"
         ).fetchone()[0] > 0
+
+
+def _artifact_ids(db):
+    from catalog.db import connect
+
+    with connect(db) as conn:
+        return [r["id"] for r in conn.execute("SELECT id, path FROM artifacts ORDER BY path")]
+
+
+def test_extract_path_glob_scopes_to_matching_files(tmp_path, capsys):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.txt").write_text("alpha", encoding="utf-8")
+    (docs / "b.txt").write_text("beta", encoding="utf-8")
+    config = _write_config(tmp_path, docs)
+    base = _base_args(tmp_path, config)
+
+    assert main(base + ["scan"]) == 0
+    capsys.readouterr()
+
+    assert main(base + ["extract", "--path-glob", "*a.txt"]) == 0
+    out = capsys.readouterr().out
+    assert "mode: fast" in out
+    assert "Artifacts processed: 1" in out
+
+
+def test_extract_artifact_id_scopes_to_one(tmp_path, capsys):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.txt").write_text("alpha", encoding="utf-8")
+    (docs / "b.txt").write_text("beta", encoding="utf-8")
+    config = _write_config(tmp_path, docs)
+    base = _base_args(tmp_path, config)
+
+    assert main(base + ["scan"]) == 0
+    capsys.readouterr()
+
+    ids = _artifact_ids(tmp_path / "catalog.sqlite")
+    assert main(base + ["extract", "--artifact-id", ids[0]]) == 0
+    out = capsys.readouterr().out
+    assert "Artifacts processed: 1" in out
+
+
+def test_classify_accepts_repeatable_artifact_id():
+    from catalog.cli import build_parser
+
+    args = build_parser().parse_args(
+        ["classify", "--artifact-id", "doc_a", "--artifact-id", "doc_b"]
+    )
+    assert args.artifact_id == ["doc_a", "doc_b"]
+
+
+def test_extract_accepts_mode_flag():
+    from catalog.cli import build_parser
+
+    args = build_parser().parse_args(["extract", "--mode", "high-quality"])
+    assert args.mode == "high-quality"

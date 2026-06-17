@@ -4,10 +4,11 @@ import argparse
 import csv
 import json
 import logging
+import sys
 from pathlib import Path
 
 from .config import load_config
-from .db import connect, init_db, latest_scan_run
+from .db import DatabaseNotWritableError, connect, init_db, latest_scan_run
 from .extraction import extract_all
 from .compliance.cli import add_compliance_parser, run_compliance
 from .governance import service as gov_service
@@ -990,6 +991,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
 
+    try:
+        return _dispatch(args)
+    except DatabaseNotWritableError as exc:
+        # Surface the actionable cause instead of an opaque SQLite traceback.
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "init-db":
         init_db(args.db)
         print(f"Initialized {args.db}")

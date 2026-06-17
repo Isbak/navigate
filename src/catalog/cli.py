@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from .config import load_config
 from .db import connect, init_db, latest_scan_run
 from .extraction import extract_all
 from .compliance.cli import add_compliance_parser, run_compliance
@@ -15,6 +16,7 @@ from .graph.cli import add_graph_parser, run_graph
 from .graphrag.cli import add_graphrag_parsers, run_graphrag
 from .links import discover_links, load_link_config
 from .links import repository as link_repo
+from .maintenance import purge_path
 from .scanner import scan
 from .knowledge import analytics as know_analytics
 from .knowledge import repository as know_repo
@@ -120,6 +122,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="consult the configured LLM for borderline merge suggestions",
     )
+    cons.add_argument(
+        "--all-sources",
+        action="store_true",
+        help="consolidate every classified document, ignoring the source-folder "
+        "scope in the config (legacy behavior)",
+    )
+
+    clean = sub.add_parser(
+        "clean-source",
+        help="permanently remove all material tied to a file or folder",
+    )
+    clean.add_argument(
+        "--path", required=True, help="file or folder whose material to purge"
+    )
+    clean.add_argument(
+        "--no-reconsolidate",
+        dest="reconsolidate",
+        action="store_false",
+        help="skip the automatic re-consolidation after purging",
+    )
+    clean.add_argument(
+        "--all-sources",
+        action="store_true",
+        help="re-consolidate unscoped (legacy) instead of by configured sources",
+    )
+    clean.set_defaults(reconsolidate=True)
 
     sub.add_parser("knowledge-stats")
 
@@ -526,6 +554,27 @@ def _cmd_show_relationships(args) -> None:
         print("No candidate relationships.")
 
 
+def _resolve_source_scope(config_path: str, all_sources: bool) -> list[str] | None:
+    """Source-folder paths that scope consolidation, or None for no scoping.
+
+    ``--all-sources`` opts out (legacy unscoped behavior). A missing config falls
+    back to an empty scope: only curated imports (which have no file path) are
+    consolidated, and a warning is printed.
+    """
+
+    if all_sources:
+        return None
+    try:
+        cfg = load_config(config_path)
+    except FileNotFoundError:
+        print(
+            f"Warning: config {config_path} not found; consolidating curated "
+            "standards only. Use --all-sources for the legacy behavior."
+        )
+        return []
+    return [source.path for source in cfg.sources]
+
+
 def _cmd_consolidate(args) -> None:
     merge_judge = None
     if args.use_llm:
@@ -538,8 +587,17 @@ def _cmd_consolidate(args) -> None:
         print(f"Using {config.provider} model {provider.model} for merge suggestions ...")
         merge_judge = make_merge_judge(provider)
 
-    print("Consolidating knowledge objects ...")
-    stats = consolidate(args.db, force=args.force, merge_judge=merge_judge)
+    source_paths = _resolve_source_scope(args.config, args.all_sources)
+    if source_paths is None:
+        print("Consolidating knowledge objects (all sources) ...")
+    else:
+        print(
+            f"Consolidating knowledge objects from {len(source_paths)} "
+            "configured source folder(s) ..."
+        )
+    stats = consolidate(
+        args.db, force=args.force, merge_judge=merge_judge, source_paths=source_paths
+    )
     print("Consolidation complete:")
     print(f"Mentions gathered: {_fmt(stats.mentions_gathered)}")
     print(f"Knowledge objects: {_fmt(stats.objects_created)}")
@@ -555,6 +613,37 @@ def _cmd_consolidate(args) -> None:
             stats.by_object_type.items(), key=lambda kv: (-kv[1], kv[0])
         ):
             print(f"  {otype}: {_fmt(count)}")
+
+
+def _cmd_clean_source(args) -> None:
+    print(f"Purging all material under {args.path} ...")
+    stats = purge_path(
+        args.path,
+        db_path=args.db,
+        cache_dir=args.cache,
+        config_path=args.config,
+        reconsolidate=args.reconsolidate,
+        all_sources=args.all_sources,
+    )
+    if stats.artifact_rows_deleted == 0:
+        print("No indexed artifacts under that path. Nothing to purge.")
+        return
+    print("Purge complete:")
+    print(f"Artifact rows deleted: {_fmt(stats.artifact_rows_deleted)}")
+    print(f"Artifacts purged: {_fmt(stats.artifacts_purged)}")
+    print(f"Links deleted: {_fmt(stats.links_deleted)}")
+    print(f"Cache dirs removed: {_fmt(stats.cache_dirs_removed)}")
+    if stats.artifacts_shared:
+        print(
+            f"Artifacts kept (duplicate copy survives elsewhere): "
+            f"{_fmt(stats.artifacts_shared)}"
+        )
+        for artifact_id in stats.shared_ids:
+            print(f"  kept: {artifact_id}")
+    if stats.reconsolidated:
+        print("Re-consolidated the knowledge graph.")
+    else:
+        print("Skipped re-consolidation. Run: catalog consolidate")
 
 
 def _cmd_knowledge_stats(args) -> None:
@@ -952,6 +1041,8 @@ def main(argv: list[str] | None = None) -> int:
         _cmd_show_relationships(args)
     elif args.command == "consolidate":
         _cmd_consolidate(args)
+    elif args.command == "clean-source":
+        _cmd_clean_source(args)
     elif args.command == "knowledge-stats":
         _cmd_knowledge_stats(args)
     elif args.command == "knowledge-growth":

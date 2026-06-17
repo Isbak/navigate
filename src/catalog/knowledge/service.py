@@ -30,6 +30,7 @@ from ..db import connect, init_db
 from . import repository as repo
 from .ids import equation_display_name, object_id, requirement_display_name
 from .models import Cluster, ReviewState
+from .scope import expand_source_roots, in_scope_artifact_ids
 from .resolution import (
     ResolutionConfig,
     cluster_mentions,
@@ -197,6 +198,7 @@ def _add_mandated_by_relationships(
     exact: dict[str, str],
     canonical: list[tuple[str, str]],
     config: ResolutionConfig,
+    allowed_artifact_ids: set[str] | None = None,
 ) -> None:
     """Link each Requirement object to the Standard that mandates it.
 
@@ -206,7 +208,9 @@ def _add_mandated_by_relationships(
     edge is only added when both objects actually exist.
     """
 
-    rows = repo.gather_candidate_requirements(conn, config.min_mention_confidence)
+    rows = repo.gather_candidate_requirements(
+        conn, config.min_mention_confidence, allowed_artifact_ids
+    )
     for row in rows:
         standard_name = (row["standard_name"] or "").strip()
         if not standard_name:
@@ -236,6 +240,7 @@ def _add_equation_relationships(
     exact: dict[str, str],
     canonical: list[tuple[str, str]],
     config: ResolutionConfig,
+    allowed_artifact_ids: set[str] | None = None,
 ) -> None:
     """Link each Equation object to its Standard and the Requirement it specifies.
 
@@ -260,7 +265,9 @@ def _add_equation_relationships(
         if quote and len(entry.quotes) < _EVIDENCE_QUOTES_PER_RELATIONSHIP:
             entry.quotes.append({"artifact_id": row["artifact_id"], "quote": quote})
 
-    rows = repo.gather_candidate_equations(conn, config.min_mention_confidence)
+    rows = repo.gather_candidate_equations(
+        conn, config.min_mention_confidence, allowed_artifact_ids
+    )
     for row in rows:
         standard_name = (row["standard_name"] or "").strip()
         eq_name = equation_display_name(
@@ -372,11 +379,18 @@ def consolidate(
     config: ResolutionConfig | None = None,
     scoring: ScoringConfig | None = None,
     merge_judge: Callable[[str, str, str], bool] | None = None,
+    source_paths: list[str | Path] | None = None,
 ) -> ConsolidationStats:
     """Run the full consolidation pipeline and return aggregate stats.
 
     ``merge_judge`` is the optional LLM-assisted merge hook. ``force`` discards
     prior human review decisions; otherwise they are preserved by stable id.
+
+    ``source_paths`` scopes the setup to documents under the configured source
+    folders: only mentions from artifacts living under one of those paths (plus
+    curated imports, which have no file path) are consolidated. Material from
+    folders no longer configured stays in the ``candidate_*`` tables and returns
+    if the path is re-added. ``source_paths is None`` disables scoping entirely.
     """
 
     config = config or ResolutionConfig()
@@ -396,8 +410,17 @@ def consolidate(
         else:
             repo.clear_all(conn)
 
+        # Restrict to the configured source folders (None = no scoping).
+        allowed_ids: set[str] | None = None
+        if source_paths is not None:
+            allowed_ids = in_scope_artifact_ids(
+                conn, expand_source_roots(source_paths)
+            )
+
         # Phase 1: gather.
-        mentions = repo.gather_mentions(conn, config.min_mention_confidence)
+        mentions = repo.gather_mentions(
+            conn, config.min_mention_confidence, allowed_ids
+        )
         stats.mentions_gathered = len(mentions)
 
         # Phases 2 + 3: group + suggest merges.
@@ -407,15 +430,19 @@ def consolidate(
 
         # Phase 6 (resolved up front so scoring can see relationship consistency).
         candidate_rows = repo.gather_candidate_relationships(
-            conn, config.min_mention_confidence
+            conn, config.min_mention_confidence, allowed_ids
         )
         resolved_rels = _resolve_relationships(
             candidate_rows, exact, canonical, config, stats
         )
         # Compliance: add the implied Requirement -> Standard ``mandated_by`` edges.
-        _add_mandated_by_relationships(conn, resolved_rels, exact, canonical, config)
+        _add_mandated_by_relationships(
+            conn, resolved_rels, exact, canonical, config, allowed_ids
+        )
         # Compliance: add the implied Equation edges (mandated_by / specifies).
-        _add_equation_relationships(conn, resolved_rels, exact, canonical, config)
+        _add_equation_relationships(
+            conn, resolved_rels, exact, canonical, config, allowed_ids
+        )
 
         rel_total: dict[str, int] = {}
         rel_rejected: dict[str, int] = {}

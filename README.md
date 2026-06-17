@@ -531,6 +531,10 @@ something repeated 27 times in one.
 catalog consolidate                # build knowledge objects from semantic data
 catalog consolidate --force        # rebuild, discarding prior review decisions
 catalog consolidate --use-llm      # use the LLM for borderline merge suggestions
+catalog consolidate --all-sources  # ignore the source-folder scope (legacy)
+
+catalog clean-source --path PATH   # permanently purge all material for a file/folder
+catalog clean-source --path PATH --no-reconsolidate   # purge without rebuilding
 
 catalog knowledge-stats            # top capabilities/concepts/technologies, most
                                    # connected/mentioned, conflicts, duplicates
@@ -550,6 +554,22 @@ After `catalog consolidate`, the success-criteria questions are answerable from
 consolidated objects rather than individual documents: *what are the core
 capabilities, which decisions are repeatedly referenced, and which concepts
 connect multiple domains.*
+
+#### Source-folder scope
+
+Consolidation only considers documents that currently live under a configured
+source folder in `config/sources.yml` (curated standard imports, which have no
+file path, always count). Drop a folder from the config and re-run
+`catalog consolidate`: objects sourced solely from that folder disappear from the
+knowledge graph, while their raw `candidate_*` rows stay in the database — so
+re-adding the path and re-consolidating brings them back. `--all-sources` opts
+out and consolidates every classified document.
+
+To permanently remove material instead of just descoping it, use
+`catalog clean-source --path <file-or-folder>`: it deletes the artifact rows,
+semantic candidates, classification, links, and extraction cache for everything
+under that path, then re-consolidates (pass `--no-reconsolidate` to skip). A
+byte-identical duplicate that still lives under another folder is preserved.
 
 ### Knowledge data model
 

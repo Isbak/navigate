@@ -28,10 +28,17 @@ COPY queries ./queries
 ENV NAVIGATE_DB=/data/catalog.sqlite \
     NAVIGATE_CACHE=/data/cache
 
-# Run as a non-root user that owns the data volume.
-RUN useradd --create-home --uid 10001 navigate \
+# Run as a non-root user that owns the data volume. The UID/GID are build args so
+# the image's built-in user can be aligned with the host's shared group (see
+# scripts/dev-permissions.sh). At runtime docker-compose additionally overrides
+# the user via `user: "${NAVIGATE_UID}:${NAVIGATE_GID}"`, which is what lets the
+# container write the bind-mounted ./data the host CLI also writes.
+ARG APP_UID=10001
+ARG APP_GID=10001
+RUN groupadd --gid ${APP_GID} navigate \
+    && useradd --create-home --uid ${APP_UID} --gid ${APP_GID} navigate \
     && mkdir -p /data \
-    && chown -R navigate:navigate /data /app
+    && chown -R ${APP_UID}:${APP_GID} /data /app
 USER navigate
 
 EXPOSE 8000

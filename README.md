@@ -1154,25 +1154,48 @@ Because `data/` is a host bind mount, the container process must own (or be able
 to write) those host files. If it cannot, reads still succeed but every write
 fails with `sqlite3.OperationalError: attempt to write a readonly database` — a
 `500` from the API, which a reverse proxy in front of it reports as a **502 Bad
-Gateway**. Two ways to give the container write access:
+Gateway**. The same error hits the host CLI (`catalog scan`, `catalog init-db`)
+when `data/` is owned by the container user. Navigate now checks this before
+opening the database and prints an actionable message instead of a raw SQLite
+traceback, pointing you at the fix below.
 
-- **Run the container as your host user (recommended)** so it writes as the
-  owner of `./data` and the CLI stays usable without `sudo`. The `api` service
-  reads `NAVIGATE_UID`/`NAVIGATE_GID`:
+**Recommended: the shared-group setup script.** Run it once. It creates `data/`
+and `cache/`, gives them a shared group, makes them group-writable with the
+setgid bit (so files created by *either* the host CLI or the container stay
+writable by both), fixes any existing SQLite files, and records
+`NAVIGATE_UID`/`NAVIGATE_GID` in `.env` (which Compose reads automatically):
 
-  ```bash
-  NAVIGATE_UID=$(id -u) NAVIGATE_GID=$(id -g) docker compose up -d api
-  ```
+```bash
+./scripts/dev-permissions.sh          # uses your uid / primary gid by default
+docker compose up --build api          # container runs as the same uid:gid
+```
 
-- **Or hand the data to the image's built-in user** (`navigate`, uid 10001),
-  which is the default when `NAVIGATE_UID`/`GID` are unset:
+Override the shared group to use a *dedicated* group shared by host and
+container rather than your primary one:
 
-  ```bash
-  sudo chown -R 10001:10001 ./data ./cache
-  docker compose up -d api
-  ```
+```bash
+NAVIGATE_GID=$(getent group developers | cut -d: -f3) ./scripts/dev-permissions.sh
+```
 
-  (After this, host CLI writes to the DB may need `sudo`.)
+Use `NAVIGATE_UID`/`NAVIGATE_GID`, **not** `UID`/`GID`: bash treats `UID`/`GID`
+as read-only, so `export UID=$(id -u)` silently does nothing. The script writes
+`.env` for you; to set them by hand for a one-off run instead:
+
+```bash
+NAVIGATE_UID=$(id -u) NAVIGATE_GID=$(id -g) docker compose up -d api
+```
+
+Alternatively, hand the data to the image's built-in user (`navigate`, uid
+10001 — the default when `NAVIGATE_UID`/`GID` are unset) with
+`sudo chown -R 10001:10001 ./data ./cache`; after that, host CLI writes to the
+DB may need `sudo`, which is why the shared-group approach is preferred.
+
+**Verify** write access from the host (both commands must succeed):
+
+```bash
+touch data/testfile && rm data/testfile
+sqlite3 data/catalog.sqlite "CREATE TABLE test_write(id INTEGER); DROP TABLE test_write;"
+```
 
 Inside the container the server binds to `0.0.0.0`, but compose publishes the
 port only to the host loopback (`127.0.0.1:8000:8000`), so the API stays

@@ -545,6 +545,60 @@ _EXPECTED_LINK_COLUMNS = {
 }
 
 
+class DatabaseNotWritableError(RuntimeError):
+    """Raised when the catalog DB (or its directory) cannot be written.
+
+    SQLite needs write access to BOTH the database file and its parent
+    directory, because it creates ``-wal``, ``-shm``, and rollback journal/lock
+    files alongside the database. When that access is missing every write fails
+    with the opaque ``sqlite3.OperationalError: attempt to write a readonly
+    database``; this surfaces the cause and the fix instead.
+    """
+
+
+def _ensure_writable(db_path: str | Path) -> None:
+    """Check the DB file and its directory are writable before opening for writes.
+
+    Raises ``DatabaseNotWritableError`` with an actionable message rather than
+    letting the write fail later as an opaque "readonly database" error.
+    """
+
+    path = Path(db_path)
+    parent = path.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise DatabaseNotWritableError(
+            f"Cannot create the catalog data directory {parent!s}: {exc.strerror}.\n"
+            f"Fix ownership/permissions, e.g. run ./scripts/dev-permissions.sh"
+        ) from exc
+
+    # uid/gid help diagnose ownership mismatches; not available on every platform.
+    getuid = getattr(os, "getuid", None)
+    getgid = getattr(os, "getgid", None)
+    who = f"uid={getuid()}, gid={getgid()}" if getuid and getgid else "this process"
+
+    # SQLite writes its WAL/SHM/journal/lock files in this directory, so it must
+    # be writable (W_OK) and traversable (X_OK), not just the DB file itself.
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise DatabaseNotWritableError(
+            f"The catalog data directory {parent!s} is not writable by {who}.\n"
+            f"SQLite needs to create -wal/-shm/journal files there. Fix it with:\n"
+            f"  ./scripts/dev-permissions.sh\n"
+            f"In Docker, run the container as a user that can write ./data, e.g. "
+            f"set NAVIGATE_UID/NAVIGATE_GID in .env (see README -> Running in Docker)."
+        )
+
+    if path.exists() and not os.access(path, os.W_OK):
+        raise DatabaseNotWritableError(
+            f"The catalog database {path!s} exists but is not writable by {who}.\n"
+            f"Fix it with:\n"
+            f"  ./scripts/dev-permissions.sh\n"
+            f"or make the file group-writable (chmod 664) and share the group with "
+            f"the Docker container (see README -> Running in Docker)."
+        )
+
+
 def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -772,6 +826,7 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     migration. Source documents are never touched.
     """
 
+    _ensure_writable(db_path)
     with connect(db_path) as conn:
         if _needs_rebuild(conn):
             conn.executescript(

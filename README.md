@@ -149,8 +149,25 @@ catalog show-duplicates
 (Re)build the extraction cache for every indexed document:
 
 ```bash
-catalog extract
+catalog extract                                  # fast text extraction (default)
+catalog extract --mode high-quality              # vision pass for hard PDF pages
+catalog extract --path-glob '**/*standard*.pdf'  # only matching files
+catalog extract --artifact-id doc_abc123         # only these ids (repeatable)
 ```
+
+Extraction has two modes (configured in `config/extraction.yml`, overridable with
+`--mode`):
+
+- **fast** — text-only extraction. Offline, no API calls. Good default.
+- **high-quality** — for PDFs, the fast pass runs first and only the pages it
+  cannot read well (scanned pages, figures, and equations rendered as images)
+  are rendered to an image and transcribed to Markdown + LaTeX by the Claude
+  provider from `config/llm.yml`. This needs network access and
+  `ANTHROPIC_API_KEY`; cost stays proportional to the suspect pages.
+
+Re-extracting a file overwrites its `extracted.txt`, so a subsequent
+`catalog classify --artifact-id <id>` (repeatable) reprocesses exactly those
+files.
 
 Discover, normalize, and classify links from the extraction cache:
 
@@ -377,8 +394,15 @@ openai:
   model: gpt-5.5
   api_key_env: OPENAI_API_KEY     # value is read from env/.env, not YAML
 
-max_input_chars: 12000      # extracted text is truncated to this before prompting
+max_input_chars: 12000      # size of one chunk sent to the model
+chunk_overlap: 500          # overlap between consecutive chunks
+max_chunks: 20              # cap on chunks per document (bounds cost)
 ```
+
+Long documents are split into chunks of `max_input_chars` characters (with
+`chunk_overlap` overlap, up to `max_chunks` chunks) and classified chunk by
+chunk; the per-chunk results are merged so equations and content past the head
+of the document are no longer lost.
 
 ### What it determines, per document
 

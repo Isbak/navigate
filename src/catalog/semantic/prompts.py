@@ -92,16 +92,36 @@ def _bullet(values: tuple[str, ...]) -> str:
     return ", ".join(values)
 
 
+def chunk_text(text: str, size: int, overlap: int = 0) -> list[str]:
+    """Split ``text`` into chunks of ``size`` chars with ``overlap`` between them.
+
+    A document that already fits in one chunk yields a single-element list, so
+    callers behave exactly as before for short documents. ``overlap`` keeps an
+    equation or sentence that straddles a boundary intact in at least one chunk.
+    """
+
+    body = text or ""
+    if size <= 0 or len(body) <= size:
+        return [body]
+    step = max(1, size - max(0, overlap))
+    return [body[start : start + size] for start in range(0, len(body), step)]
+
+
 def build_classification_prompt(
     metadata: dict,
     text: str,
     *,
     max_input_chars: int = 12000,
+    chunk_index: int = 0,
+    chunk_total: int = 1,
 ) -> tuple[str, str]:
-    """Return ``(system_prompt, user_prompt)`` for one document.
+    """Return ``(system_prompt, user_prompt)`` for one document (or chunk).
 
     ``metadata`` is the artifact's ``metadata.json`` (filename, file_type, ...);
-    ``text`` is the extracted document text, truncated to ``max_input_chars``.
+    ``text`` is the extracted document text, truncated to ``max_input_chars`` as
+    a safety net. When a document is processed in pieces, ``chunk_index`` and
+    ``chunk_total`` (1-based count) are surfaced to the model so it knows it is
+    seeing part of a longer document.
     """
 
     body = text or ""
@@ -111,6 +131,12 @@ def build_classification_prompt(
 
     filename = metadata.get("filename", metadata.get("artifact_id", "unknown"))
     file_type = metadata.get("file_type", "unknown")
+    chunk_note = (
+        "- note: this is chunk %d of %d of a longer document; extract only what "
+        "this chunk supports" % (chunk_index + 1, chunk_total)
+        if chunk_total > 1
+        else ""
+    )
 
     instructions = f"""\
 Analyze the document below and return a single JSON object with these keys:
@@ -173,6 +199,7 @@ Example of the expected shape (values are illustrative, do not copy them):
 Document metadata:
 - filename: {filename}
 - file_type: {file_type}
+{chunk_note}
 {"- note: text was truncated to the first %d characters" % max_input_chars if truncated else ""}
 
 --- BEGIN DOCUMENT TEXT ---
@@ -182,4 +209,4 @@ Document metadata:
     return SYSTEM_PROMPT, instructions
 
 
-__all__ = ["build_classification_prompt", "SYSTEM_PROMPT"]
+__all__ = ["build_classification_prompt", "chunk_text", "SYSTEM_PROMPT"]

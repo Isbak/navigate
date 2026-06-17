@@ -131,6 +131,38 @@ def test_claude_generate_posts_and_parses(monkeypatch):
     assert captured["body"]["messages"][0]["role"] == "user"
 
 
+def test_claude_generate_sends_image_blocks(monkeypatch):
+    import base64
+
+    captured = {}
+    body = json.dumps(
+        {"content": [{"type": "text", "text": "$$E=mc^2$$"}]}
+    ).encode("utf-8")
+    png = b"\x89PNG fake bytes"
+    with _fake_urlopen(captured, body) as opener:
+        monkeypatch.setattr("catalog.semantic.providers.claude_provider.request.urlopen", opener)
+        provider = ClaudeProvider("claude-sonnet-4-5", api_key="secret")
+        out = provider.generate("transcribe", system="sys", images=[png])
+
+    assert out == "$$E=mc^2$$"
+    content = captured["body"]["messages"][0]["content"]
+    assert isinstance(content, list)
+    image_block, text_block = content[0], content[1]
+    assert image_block["type"] == "image"
+    assert image_block["source"]["media_type"] == "image/png"
+    assert image_block["source"]["data"] == base64.b64encode(png).decode("ascii")
+    assert text_block == {"type": "text", "text": "transcribe"}
+
+
+def test_claude_without_images_sends_plain_string(monkeypatch):
+    captured = {}
+    body = json.dumps({"content": [{"type": "text", "text": "{}"}]}).encode("utf-8")
+    with _fake_urlopen(captured, body) as opener:
+        monkeypatch.setattr("catalog.semantic.providers.claude_provider.request.urlopen", opener)
+        ClaudeProvider("claude-sonnet-4-5", api_key="secret").generate("hello")
+    assert captured["body"]["messages"][0]["content"] == "hello"
+
+
 def test_claude_without_key_raises():
     provider = ClaudeProvider("claude-sonnet-4-5", api_key="")
     with pytest.raises(LLMError):

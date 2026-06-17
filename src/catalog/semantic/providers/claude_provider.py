@@ -7,6 +7,7 @@ no hard dependency on the ``anthropic`` SDK. The API key is read from the
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -48,16 +49,39 @@ class ClaudeProvider(BaseLLMProvider):
         self.api_key_env = api_key_env
         self._api_key = api_key or os.environ.get(api_key_env)
 
-    def generate(self, prompt: str, *, system: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        images: list[bytes] | None = None,
+        image_media_type: str = "image/png",
+    ) -> str:
         if not self._api_key:
             raise LLMError(
                 f"Anthropic API key not set; export {self.api_key_env} or pass api_key"
             )
 
+        if images:
+            content: list[dict] = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_media_type,
+                        "data": base64.b64encode(image).decode("ascii"),
+                    },
+                }
+                for image in images
+            ]
+            content.append({"type": "text", "text": prompt})
+        else:
+            content = prompt
+
         payload: dict = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
         }
         if system:
             payload["system"] = system

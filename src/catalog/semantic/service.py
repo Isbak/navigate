@@ -28,8 +28,12 @@ from typing import Callable
 
 from ..db import connect, init_db
 from . import repository as repo
-from .parser import ParseError, parse_classification_response
-from .prompts import build_classification_prompt
+from .parser import (
+    ParseError,
+    merge_classification_results,
+    parse_classification_response,
+)
+from .prompts import build_classification_prompt, chunk_text
 from .providers.base import BaseLLMProvider, LLMError
 
 LOGGER = logging.getLogger(__name__)
@@ -73,10 +77,23 @@ class ClassifyStats:
         }
 
 
-def _cache_artifact_dirs(cache_dir: Path, artifact_id: str | None) -> list[Path]:
-    if artifact_id is not None:
-        candidate = cache_dir / artifact_id
-        return [candidate] if (candidate / EXTRACTED_FILENAME).exists() else []
+def _normalize_ids(artifact_id: str | list[str] | None) -> list[str] | None:
+    if artifact_id is None:
+        return None
+    if isinstance(artifact_id, str):
+        return [artifact_id]
+    return list(artifact_id)
+
+
+def _cache_artifact_dirs(
+    cache_dir: Path, artifact_ids: list[str] | None
+) -> list[Path]:
+    if artifact_ids is not None:
+        return [
+            cache_dir / aid
+            for aid in artifact_ids
+            if (cache_dir / aid / EXTRACTED_FILENAME).exists()
+        ]
     return sorted(
         p.parent for p in cache_dir.glob(f"*/{EXTRACTED_FILENAME}") if p.is_file()
     )
@@ -90,9 +107,9 @@ def _active_artifact_ids(conn) -> set[str]:
 
 
 def _artifact_dirs(
-    cache_dir: Path, artifact_id: str | None, active_artifact_ids: set[str]
+    cache_dir: Path, artifact_ids: list[str] | None, active_artifact_ids: set[str]
 ) -> list[Path]:
-    cache_dirs = _cache_artifact_dirs(cache_dir, artifact_id)
+    cache_dirs = _cache_artifact_dirs(cache_dir, artifact_ids)
     if not active_artifact_ids:
         return cache_dirs
     return [p for p in cache_dirs if p.name in active_artifact_ids]
@@ -115,6 +132,8 @@ def _classify_one(
     provider: BaseLLMProvider,
     *,
     max_input_chars: int,
+    chunk_overlap: int,
+    max_chunks: int,
     force: bool,
     now: str,
     stats: ClassifyStats,
@@ -132,11 +151,23 @@ def _classify_one(
             return
 
     metadata = _read_metadata(artifact_dir)
-    system, user = build_classification_prompt(
-        metadata, text, max_input_chars=max_input_chars
-    )
-    raw = provider.generate(user, system=system)
-    result = parse_classification_response(raw)
+
+    # Process the whole document: split into chunks and merge per-chunk results
+    # so equations and content past the head of a long document are not lost.
+    chunks = chunk_text(text, max_input_chars, chunk_overlap)[:max_chunks]
+    total = len(chunks)
+    results = []
+    for index, chunk in enumerate(chunks):
+        system, user = build_classification_prompt(
+            metadata,
+            chunk,
+            max_input_chars=max_input_chars,
+            chunk_index=index,
+            chunk_total=total,
+        )
+        raw = provider.generate(user, system=system)
+        results.append(parse_classification_response(raw))
+    result = merge_classification_results(results)
 
     repo.delete_for_artifact(conn, artifact_id)
     repo.persist_classification(
@@ -164,27 +195,33 @@ def classify_documents(
     cache_dir: str | Path,
     provider: BaseLLMProvider,
     *,
-    artifact_id: str | None = None,
+    artifact_id: str | list[str] | None = None,
     force: bool = False,
     max_input_chars: int = 12000,
+    chunk_overlap: int = 500,
+    max_chunks: int = 20,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> ClassifyStats:
     """Classify cached documents with ``provider`` and persist the results.
 
-    Processes a single artifact when ``artifact_id`` is given, otherwise every
-    ``cache/*/extracted.txt``. Returns aggregate stats and records a row in
-    ``classification_runs``. When provided, ``progress_callback`` is called after
-    each artifact is handled with ``(completed, total, artifact_id)``.
+    Processes the given artifact id(s) when ``artifact_id`` is set (a single id
+    or a list), otherwise every ``cache/*/extracted.txt``. Long documents are
+    split into chunks of ``max_input_chars`` (with ``chunk_overlap`` overlap, up
+    to ``max_chunks`` chunks) and the per-chunk results merged. Returns aggregate
+    stats and records a row in ``classification_runs``. When provided,
+    ``progress_callback`` is called after each artifact with
+    ``(completed, total, artifact_id)``.
     """
 
     cache_path = Path(cache_dir)
     init_db(db_path)
 
+    artifact_ids = _normalize_ids(artifact_id)
     started_at = _utc_now()
     stats = ClassifyStats()
     with connect(db_path) as conn:
         artifact_dirs = _artifact_dirs(
-            cache_path, artifact_id, _active_artifact_ids(conn)
+            cache_path, artifact_ids, _active_artifact_ids(conn)
         )
         total_artifacts = len(artifact_dirs)
         for index, artifact_dir in enumerate(artifact_dirs, start=1):
@@ -194,6 +231,8 @@ def classify_documents(
                     artifact_dir,
                     provider,
                     max_input_chars=max_input_chars,
+                    chunk_overlap=chunk_overlap,
+                    max_chunks=max_chunks,
                     force=force,
                     now=started_at,
                     stats=stats,

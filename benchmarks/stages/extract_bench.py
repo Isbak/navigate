@@ -57,7 +57,7 @@ def run(ctx) -> StageResult:
 
             links_raw = json.loads((adir / "links.json").read_text(encoding="utf-8"))
             predicted_links.update(
-                f"{filename}::{l['raw_url']}" for l in links_raw
+                f"{filename}::{link['raw_url']}" for link in links_raw
             )
             gold_links.update(f"{filename}::{u}" for u in expected.get("links", []))
 

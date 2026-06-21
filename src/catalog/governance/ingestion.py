@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _parse(ts: str | None) -> datetime | None:
         dt = datetime.fromisoformat(ts)
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def should_run(schedule: str, last_run: str | None, now: str | datetime) -> bool:
@@ -113,7 +113,7 @@ def run_ingestion(
 ) -> IngestionResult:
     """Run the pipeline if due (or forced), recording each step's outcome."""
 
-    when = now or datetime.now(timezone.utc).isoformat()
+    when = now or datetime.now(UTC).isoformat()
     last_run = read_last_run(db_path)
     if not force and not should_run(schedule, last_run, when):
         return IngestionResult(

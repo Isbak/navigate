@@ -2,8 +2,8 @@
 
 from catalog.db import connect
 from catalog.governance import repository as repo
-from catalog.governance.config import FreshnessConfig, GovernanceConfig, load_governance_config
-from catalog.governance.models import AlertType, FreshnessState, ReviewWorkflowState
+from catalog.governance.config import load_governance_config
+from catalog.governance.models import AlertType, FreshnessState
 from catalog.governance.ownership import assign_owner
 from catalog.governance.service import run_scan
 
@@ -59,10 +59,12 @@ def test_stale_knowledge_alert(governed_db):
 
 def test_stale_review_alert():
     # An approved object reviewed long ago should raise a stale-review alert.
-    import tempfile, os
+    import os
+    import tempfile
+
     from catalog.db import init_db
-    from catalog.knowledge.service import consolidate
     from catalog.governance.service import approve_object
+    from catalog.knowledge.service import consolidate
 
     d = tempfile.mkdtemp()
     db = os.path.join(d, "c.sqlite")

@@ -12,7 +12,7 @@ from ...governance import domains as domain_analysis
 from ...governance import repository as gov_repo
 from ...governance.config import load_governance_config
 from ...governance.dashboard import build_dashboard
-from ...governance.models import FreshnessState, OPEN_REVIEW_STATES
+from ...governance.models import OPEN_REVIEW_STATES, FreshnessState
 from ...governance.orphans import all_orphans
 from ...knowledge import analytics as know_analytics
 from .. import serializers

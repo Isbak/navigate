@@ -21,22 +21,22 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from ..db import connect, init_db
 from . import repository as repo
 from .ids import equation_display_name, object_id, requirement_display_name
 from .models import Cluster, ReviewState
-from .scope import expand_source_roots, in_scope_artifact_ids
 from .resolution import (
     ResolutionConfig,
     cluster_mentions,
     normalize_name,
     similarity,
 )
+from .scope import expand_source_roots, in_scope_artifact_ids
 from .scoring import ScoringConfig, ScoringInputs, score_object
 
 LOGGER = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ _PRESERVED_STATUSES = {
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 @dataclass
 class BulkApprovalStats:

@@ -17,9 +17,8 @@ from catalog.cost.pricing import ModelRate
 from catalog.cost.usage import Usage
 from catalog.db import connect, init_db
 from catalog.semantic.providers import ClaudeProvider, OllamaProvider, OpenAIProvider
-from catalog.semantic.providers.base import BaseLLMProvider
+from catalog.semantic.providers.base import BaseLLMProvider, LLMError
 from catalog.semantic.service import classify_documents
-
 
 # -- provider usage capture ---------------------------------------------------
 
@@ -101,7 +100,9 @@ def test_failed_call_resets_usage(monkeypatch):
         monkeypatch.setattr(
             "catalog.semantic.providers.claude_provider.request.urlopen", opener
         )
-        provider = ClaudeProvider("claude-sonnet-4-5", api_key="secret")
+        # max_retries=0 so the failure path below raises immediately instead of
+        # sleeping through the transient-retry backoff.
+        provider = ClaudeProvider("claude-sonnet-4-5", api_key="secret", max_retries=0)
         provider.generate("hi")
     assert provider.last_usage is not None
 
@@ -111,7 +112,7 @@ def test_failed_call_resets_usage(monkeypatch):
     monkeypatch.setattr(
         "catalog.semantic.providers.claude_provider.request.urlopen", _boom
     )
-    with pytest.raises(Exception):
+    with pytest.raises(LLMError):
         provider.generate("hi again")
     assert provider.last_usage is None
 
@@ -165,15 +166,15 @@ def test_compute_cost_includes_cache_tokens():
 # -- repository ---------------------------------------------------------------
 
 def _seed(conn, **kwargs):
-    defaults = dict(
-        operation="classify",
-        model="m1",
-        provider="claude",
-        input_tokens=10,
-        output_tokens=5,
-        cost_usd=0.001,
-        created_at="2026-01-01T00:00:00+00:00",
-    )
+    defaults = {
+        "operation": "classify",
+        "model": "m1",
+        "provider": "claude",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0.001,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
     defaults.update(kwargs)
     return cost_repo.record_usage(conn, **defaults)
 

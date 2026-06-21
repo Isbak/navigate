@@ -375,9 +375,16 @@ subclass:
 - `ClaudeProvider` — talks to Anthropic's Claude Messages API.
 - `OpenAIProvider` — talks to the OpenAI Chat Completions API.
 
-All providers use only the standard library (no vendor SDK dependency). Keep
-shareable, non-secret provider settings in `config/llm.yml`; put real API keys in
-your shell environment or an ignored `.env` copied from `.env.example`:
+All providers use only the standard library (no vendor SDK dependency) and share
+one HTTP transport that retries *transient* failures — HTTP 429 (rate limited),
+5xx, and connection/timeout errors — with bounded exponential backoff (honouring
+`Retry-After` on 429s), so a single rate-limit blip no longer aborts a run that
+has already spent tokens. Permanent failures (4xx other than 429, malformed
+responses) still fail fast. Tune per provider with `max_retries` (default 3) and
+`retry_backoff` seconds (default 0.5).
+
+Keep shareable, non-secret provider settings in `config/llm.yml`; put real API
+keys in your shell environment or an ignored `.env` copied from `.env.example`:
 
 ```yaml
 provider: claude
@@ -1387,11 +1394,25 @@ A failing subscriber is logged and isolated so it can never corrupt indexing.
 
 ## Development
 
-Run tests:
+Run tests (with coverage):
 
 ```bash
-pytest
+pytest                                   # quiet run (configured in pyproject)
+pytest --cov --cov-report=term-missing   # with a coverage summary
 ```
+
+Lint and type-check:
+
+```bash
+ruff check .      # enforced in CI
+ruff format .     # apply formatting (not gated yet)
+mypy              # advisory in CI while the type baseline is burned down
+```
+
+CI runs three jobs: `lint` (ruff, enforced; mypy, advisory), `test`
+(pytest + coverage on Python 3.11 and 3.12), and `benchmark`. Tool
+configuration lives in `pyproject.toml` under `[tool.ruff]`, `[tool.mypy]`,
+`[tool.coverage.run]`, and `[tool.pytest.ini_options]`.
 
 Run the CLI without installing the package:
 

@@ -99,7 +99,7 @@ def shortest_path(graph: nx.DiGraph, source: str, target: str) -> list[dict] | N
         return None
 
     hops: list[dict] = []
-    for a, b in zip(node_path, node_path[1:]):
+    for a, b in zip(node_path, node_path[1:], strict=False):
         if graph.has_edge(a, b):
             predicate = graph.edges[a, b]["predicate"]
             forward = True

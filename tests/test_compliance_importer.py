@@ -5,7 +5,6 @@ from __future__ import annotations
 from catalog.compliance.importer import import_standard, load_catalog
 from catalog.db import connect, init_db
 
-
 _YAML = """
 standard:
   name: ISO 27001

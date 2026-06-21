@@ -14,7 +14,7 @@ import sqlite3
 from . import domains as domain_analysis
 from . import repository as repo
 from .config import GovernanceConfig
-from .models import FreshnessState, OPEN_REVIEW_STATES, ReviewWorkflowState
+from .models import OPEN_REVIEW_STATES, FreshnessState, ReviewWorkflowState
 
 
 def _count(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> int:

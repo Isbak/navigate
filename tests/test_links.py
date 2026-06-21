@@ -8,7 +8,6 @@ from catalog.links.classifier import (
 from catalog.links.config import LinkConfig
 from catalog.links.normalizer import normalize_url
 
-
 # -- normalization -------------------------------------------------------------
 
 def test_normalize_trims_and_lowercases_scheme_and_host():

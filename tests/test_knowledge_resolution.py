@@ -7,6 +7,11 @@ duplicate-candidate detection, and confidence scoring.
 
 from catalog.knowledge.ids import object_id, slugify
 from catalog.knowledge.models import RawMention
+from catalog.knowledge.prompts import (
+    build_merge_prompt,
+    make_merge_judge,
+    parse_merge_answer,
+)
 from catalog.knowledge.resolution import (
     ResolutionConfig,
     cluster_mentions,
@@ -14,11 +19,6 @@ from catalog.knowledge.resolution import (
     duplicate_candidate_pairs,
     normalize_name,
     similarity,
-)
-from catalog.knowledge.prompts import (
-    build_merge_prompt,
-    make_merge_judge,
-    parse_merge_answer,
 )
 from catalog.knowledge.scoring import ScoringInputs, score_object
 from catalog.semantic.providers.base import BaseLLMProvider, LLMError

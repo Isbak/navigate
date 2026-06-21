@@ -31,9 +31,13 @@ def _strip_inline_comment(value: str) -> str:
         if char == '"' and not in_single:
             in_double = not in_double
             continue
-        if char == "#" and not in_single and not in_double:
-            if index == 0 or value[index - 1].isspace():
-                return value[:index].rstrip()
+        if (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (index == 0 or value[index - 1].isspace())
+        ):
+            return value[:index].rstrip()
     return value.strip()
 
 

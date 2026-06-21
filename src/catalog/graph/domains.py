@@ -13,8 +13,8 @@ directly from the graph, with no LLM or embeddings involved.
 
 from __future__ import annotations
 
-from .network import build_digraph
 from .client import GraphClient
+from .network import build_digraph
 
 
 def analyze_domains(client: GraphClient) -> list[dict]:

@@ -21,10 +21,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from ..cost import NullUsageLedger, PricingTable, UsageLedger, load_pricing
 from ..db import connect, init_db
@@ -45,7 +45,7 @@ METADATA_FILENAME = "metadata.json"
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _source_hash(text: str) -> str:

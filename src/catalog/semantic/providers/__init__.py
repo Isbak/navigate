@@ -8,13 +8,23 @@ subclass and registering it in :data:`_PROVIDERS`.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from ..config import LLMConfig
+from ._http import DEFAULT_BACKOFF, DEFAULT_MAX_RETRIES
 from .base import BaseLLMProvider, LLMError
 from .claude_provider import ClaudeProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+
+
+def _retry_opts(opts: dict) -> dict:
+    """Shared transient-retry knobs, identical across every backend."""
+
+    return {
+        "max_retries": int(opts.get("max_retries", DEFAULT_MAX_RETRIES)),
+        "retry_backoff": float(opts.get("retry_backoff", DEFAULT_BACKOFF)),
+    }
 
 
 def _build_ollama(config: LLMConfig) -> BaseLLMProvider:
@@ -23,6 +33,7 @@ def _build_ollama(config: LLMConfig) -> BaseLLMProvider:
         config.model,
         host=opts.get("host", "http://localhost:11434"),
         timeout=int(opts.get("timeout", 120)),
+        **_retry_opts(opts),
     )
 
 
@@ -36,6 +47,7 @@ def _build_claude(config: LLMConfig) -> BaseLLMProvider:
         anthropic_version=opts.get("anthropic_version", "2023-06-01"),
         api_key_env=opts.get("api_key_env", "ANTHROPIC_API_KEY"),
         cache_system_prompt=bool(opts.get("prompt_cache", True)),
+        **_retry_opts(opts),
     )
 
 
@@ -46,6 +58,7 @@ def _build_openai(config: LLMConfig) -> BaseLLMProvider:
         base_url=opts.get("base_url", "https://api.openai.com/v1"),
         timeout=int(opts.get("timeout", 120)),
         api_key_env=opts.get("api_key_env", "OPENAI_API_KEY"),
+        **_retry_opts(opts),
     )
 
 

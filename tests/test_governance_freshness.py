@@ -1,6 +1,6 @@
 """Tests for governance freshness calculations (Prompt #10)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from catalog.governance.config import FreshnessConfig
 from catalog.governance.freshness import age_in_days, freshness_for, freshness_score
@@ -47,17 +47,17 @@ def test_score_decays_to_zero_at_horizon():
 
 
 def test_age_in_days_between_dates():
-    now = datetime(2026, 6, 13, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 13, tzinfo=UTC)
     seen = (now - timedelta(days=200)).isoformat()
     assert round(age_in_days(seen, now)) == 200
 
 
 def test_age_in_days_missing_is_zero():
-    assert age_in_days(None, datetime.now(timezone.utc)) == 0.0
-    assert age_in_days("", datetime.now(timezone.utc)) == 0.0
+    assert age_in_days(None, datetime.now(UTC)) == 0.0
+    assert age_in_days("", datetime.now(UTC)) == 0.0
 
 
 def test_age_handles_naive_timestamp():
-    now = datetime(2026, 6, 13, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 13, tzinfo=UTC)
     naive = "2026-01-01T00:00:00"  # no timezone
     assert age_in_days(naive, now) > 150

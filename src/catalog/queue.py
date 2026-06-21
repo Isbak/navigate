@@ -10,7 +10,7 @@ lets the consumer run on its own thread with its own SQLite connection.
 from __future__ import annotations
 
 import queue
-from typing import Iterator
+from collections.abc import Iterator
 
 from .events import Artifact
 

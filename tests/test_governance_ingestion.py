@@ -1,6 +1,6 @@
 """Tests for the governance ingestion scheduler (Prompt #10)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from catalog.governance.ingestion import (
     read_last_run,
@@ -8,7 +8,7 @@ from catalog.governance.ingestion import (
     should_run,
 )
 
-NOW = datetime(2026, 6, 13, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 13, tzinfo=UTC)
 
 
 def test_manual_always_runs():

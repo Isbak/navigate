@@ -9,7 +9,7 @@ always answerable.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..db import connect, init_db
@@ -20,7 +20,7 @@ _VALID_OWNER_TYPES = {t.value for t in OwnerType}
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def assign_owner(

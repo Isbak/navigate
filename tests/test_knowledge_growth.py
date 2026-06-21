@@ -70,6 +70,5 @@ def test_growth_trend_ignores_unparseable_timestamps(tmp_path):
 
 def test_growth_trend_rejects_unknown_interval(tmp_path):
     db = _seed(tmp_path)
-    with connect(db) as conn:
-        with pytest.raises(ValueError):
-            analytics.growth_trend(conn, interval="decade")
+    with connect(db) as conn, pytest.raises(ValueError):
+        analytics.growth_trend(conn, interval="decade")

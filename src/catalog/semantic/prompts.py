@@ -215,13 +215,13 @@ def build_classification_prompt(
     filename = metadata.get("filename", metadata.get("artifact_id", "unknown"))
     file_type = metadata.get("file_type", "unknown")
     chunk_note = (
-        "- note: this is chunk %d of %d of a longer document; extract only what "
-        "this chunk supports\n" % (chunk_index + 1, chunk_total)
+        f"- note: this is chunk {chunk_index + 1} of {chunk_total} of a longer "
+        "document; extract only what this chunk supports\n"
         if chunk_total > 1
         else ""
     )
     truncation_note = (
-        "- note: text was truncated to the first %d characters\n" % max_input_chars
+        f"- note: text was truncated to the first {max_input_chars} characters\n"
         if truncated
         else ""
     )

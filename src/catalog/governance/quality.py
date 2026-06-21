@@ -82,7 +82,7 @@ def score_quality(
     )
     factors = (evidence, review, freshness, consistency, owner, confidence)
     total_weight = sum(weights) or 1.0
-    blended = sum(w * f for w, f in zip(weights, factors)) / total_weight
+    blended = sum(w * f for w, f in zip(weights, factors, strict=False)) / total_weight
 
     return {
         "evidence_score": round(evidence, 3),

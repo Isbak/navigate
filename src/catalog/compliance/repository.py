@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import sqlite3
 
-from .models import ComplianceReviewState
-
 # Predicate that links a control to the requirement it claims to meet.
 SATISFIES = "satisfies"
 MANDATED_BY = "mandated_by"

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from ...jobs.service import JobContext, get_job as get_job_record, list_jobs, run_job
+from ...jobs.service import JobContext, list_jobs, run_job
+from ...jobs.service import get_job as get_job_record
 from .. import serializers
 from ..config import ApiSettings
 from ..dependencies import build_job_context, get_settings

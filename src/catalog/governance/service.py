@@ -20,8 +20,8 @@ Because the governance tables reference object ids softly, all of this survives 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..db import connect, init_db
@@ -43,7 +43,7 @@ _QUALITY_DROP_POINTS = 5.0
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 @dataclass
 class GovernanceScanStats:

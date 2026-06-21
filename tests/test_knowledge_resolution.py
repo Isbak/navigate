@@ -10,6 +10,7 @@ from catalog.knowledge.models import RawMention
 from catalog.knowledge.resolution import (
     ResolutionConfig,
     cluster_mentions,
+    cross_type_duplicate_pairs,
     duplicate_candidate_pairs,
     normalize_name,
     similarity,
@@ -60,6 +61,21 @@ def test_similarity_distinguishes_different_things():
     assert similarity("Release Management", "Release Governance") < 0.72
 
 
+def test_lone_generic_token_does_not_auto_merge_into_specific_name():
+    # A single generic word must NOT be lifted into a specific multi-word name by
+    # the containment boost (the over-merge guard): "Governance" is its own thing.
+    assert similarity("Governance", "Release Governance") < (
+        ResolutionConfig().auto_merge_threshold
+    )
+    assert similarity("Data", "Data Platform") < (
+        ResolutionConfig().auto_merge_threshold
+    )
+    # But multi-token containment still merges ("X Y" vs "X Y Z").
+    assert similarity("Customer Data", "Customer Data Platform") >= (
+        ResolutionConfig().auto_merge_threshold
+    )
+
+
 # -- clustering / entity resolution ------------------------------------------
 
 def test_three_variants_collapse_to_one_object():
@@ -95,6 +111,19 @@ def test_low_confidence_mentions_filtered_out():
     clusters = cluster_mentions(mentions, config)
     names = {c.canonical_name for c in clusters}
     assert names == {"Strong"}
+
+
+def test_default_confidence_floor_drops_noise():
+    # The default config now carries a non-zero floor, so weak one-off mentions
+    # do not each become a knowledge object out of the box.
+    assert ResolutionConfig().min_mention_confidence > 0.0
+    clusters = cluster_mentions(
+        [
+            _mention("Real Capability", "doc_a", confidence=0.9),
+            _mention("Noise", "doc_b", confidence=0.1),
+        ]
+    )
+    assert {c.canonical_name for c in clusters} == {"Real Capability"}
 
 
 def test_merge_confidence_recorded():
@@ -160,6 +189,22 @@ def test_duplicate_candidates_surface_borderline_pairs():
     # The unrelated object is not similar enough to suggest as a duplicate.
     flat = {name for pair in names for name in pair}
     assert "Totally Unrelated Thing" not in flat
+
+
+def test_cross_type_duplicates_surface_same_name_different_type():
+    objects = [
+        ("a", "Capability", "Release Governance"),
+        ("b", "Concept", "Release governance"),  # same name, different type
+        ("c", "Capability", "Release Governance"),  # same type -> not surfaced
+        ("d", "Platform", "Salesforce"),
+    ]
+    pairs = cross_type_duplicate_pairs(objects)
+    typed = {(p["left_type"], p["right_type"]) for p in pairs}
+    assert {"Capability", "Concept"} == set().union(*typed)
+    # Salesforce appears once, so it is never surfaced as a cross-type collision.
+    assert all("Salesforce" not in (p["left_name"], p["right_name"]) for p in pairs)
+    # Two same-type Capabilities with the same name are not a cross-type pair.
+    assert all(p["left_type"] != p["right_type"] for p in pairs)
 
 
 # -- scoring ------------------------------------------------------------------

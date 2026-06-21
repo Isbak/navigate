@@ -132,6 +132,10 @@ class CandidateDecision:
     decision_text: str
     confidence: float
     supporting_text: str = ""
+    # Short canonical label (<= 8 words) used as the consolidation key so the
+    # same decision phrased differently across documents collapses into one
+    # object. Falls back to a derived label when the model omits it.
+    title: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,6 +143,8 @@ class CandidateRisk:
     risk_description: str
     confidence: float
     supporting_text: str = ""
+    # Short canonical label; see CandidateDecision.title.
+    title: str = ""
 
 
 @dataclass(frozen=True)

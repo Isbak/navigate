@@ -68,11 +68,13 @@ class ResolutionConfig:
     * ``review_threshold`` - between this and the auto-merge threshold a pair is a
       *duplicate candidate*: surfaced for human review, never auto-merged.
     * ``min_mention_confidence`` - mentions weaker than this are ignored entirely.
+      Defaults to a non-zero floor so the long tail of low-confidence, one-off
+      proposals does not each become its own knowledge object (pure noise).
     """
 
     auto_merge_threshold: float = 0.88
     review_threshold: float = 0.72
-    min_mention_confidence: float = 0.0
+    min_mention_confidence: float = 0.3
 
 
 def normalize_name(name: str) -> str:
@@ -130,8 +132,13 @@ def similarity(a: str, b: str) -> float:
     dice = _dice(na, nb)
     base = 0.5 * jaccard + 0.5 * dice
 
-    # Containment: significant tokens of one are wholly inside the other.
-    if ta and tb and (ta <= tb or tb <= ta):
+    # Containment: significant tokens of one are wholly inside the other (the
+    # "X" vs "X Model" case). Only boost when the *smaller* set has at least two
+    # significant tokens, so a lone generic term ("Governance", "Data") is never
+    # auto-merged into a specific multi-word name ("Release Governance",
+    # "Data Platform") - that subset is real but the things are different.
+    smaller = ta if len(ta) <= len(tb) else tb
+    if ta and tb and len(smaller) >= 2 and (ta <= tb or tb <= ta):
         base = max(base, 0.88 + 0.12 * jaccard)
 
     return max(0.0, min(1.0, base))
@@ -295,10 +302,48 @@ def duplicate_candidate_pairs(
     return out
 
 
+def cross_type_duplicate_pairs(objects: list[tuple[str, str, str]]) -> list[dict]:
+    """Find objects that share a name but differ in ``object_type``.
+
+    ``objects`` is ``[(id, object_type, canonical_name), ...]``. Clustering only
+    ever merges within a single ``object_type``, so the same real-world thing
+    tagged ``Concept`` in one document and ``Capability`` in another becomes two
+    separate objects. This surfaces those collisions (same normalized name,
+    different type) for a human to reconcile - it never auto-merges them, because
+    deciding the correct type is a genuine review call.
+    """
+
+    by_name: dict[str, list[tuple[str, str, str]]] = {}
+    for oid, otype, name in objects:
+        by_name.setdefault(normalize_name(name), []).append((oid, otype, name))
+
+    out: list[dict] = []
+    for group in by_name.values():
+        if len({otype for _, otype, _ in group}) < 2:
+            continue
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                if group[i][1] == group[j][1]:
+                    continue
+                out.append(
+                    {
+                        "left_id": group[i][0],
+                        "left_type": group[i][1],
+                        "left_name": group[i][2],
+                        "right_id": group[j][0],
+                        "right_type": group[j][1],
+                        "right_name": group[j][2],
+                    }
+                )
+    out.sort(key=lambda d: d["left_name"].lower())
+    return out
+
+
 __all__ = [
     "ResolutionConfig",
     "normalize_name",
     "similarity",
     "cluster_mentions",
     "duplicate_candidate_pairs",
+    "cross_type_duplicate_pairs",
 ]

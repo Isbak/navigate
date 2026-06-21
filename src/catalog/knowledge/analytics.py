@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import sqlite3
 
-from .resolution import ResolutionConfig, duplicate_candidate_pairs
+from .resolution import (
+    ResolutionConfig,
+    cross_type_duplicate_pairs,
+    duplicate_candidate_pairs,
+)
 
 # Mentions whose confidences straddle this gap signal that documents disagree
 # about an object (some assert it strongly, others barely).
@@ -231,6 +235,20 @@ def duplicate_candidates(
     return duplicate_candidate_pairs(objects, config)[:limit]
 
 
+def cross_type_duplicates(
+    conn: sqlite3.Connection, limit: int = 20
+) -> list[dict]:
+    """Objects sharing a name across different types - likely the same thing."""
+
+    objects = [
+        (r["id"], r["object_type"], r["canonical_name"])
+        for r in conn.execute(
+            "SELECT id, object_type, canonical_name FROM knowledge_objects"
+        )
+    ]
+    return cross_type_duplicate_pairs(objects)[:limit]
+
+
 __all__ = [
     "top_by_type",
     "most_mentioned",
@@ -238,4 +256,5 @@ __all__ = [
     "conflicting_evidence",
     "growth_trend",
     "duplicate_candidates",
+    "cross_type_duplicates",
 ]

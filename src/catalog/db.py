@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS candidate_decisions(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   artifact_id TEXT NOT NULL,
   decision_text TEXT,
+  title TEXT,
   confidence REAL,
   supporting_text TEXT,
   knowledge_type TEXT DEFAULT 'HYPOTHESIS',
@@ -154,6 +155,7 @@ CREATE TABLE IF NOT EXISTS candidate_risks(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   artifact_id TEXT NOT NULL,
   risk_description TEXT,
+  title TEXT,
   confidence REAL,
   supporting_text TEXT,
   knowledge_type TEXT DEFAULT 'HYPOTHESIS',
@@ -675,12 +677,12 @@ _EXPECTED_SEMANTIC_COLUMNS = {
         "knowledge_type", "review_status", "model", "created_at",
     },
     "candidate_decisions": {
-        "id", "artifact_id", "decision_text", "confidence", "supporting_text",
-        "knowledge_type", "review_status", "model", "created_at",
+        "id", "artifact_id", "decision_text", "title", "confidence",
+        "supporting_text", "knowledge_type", "review_status", "model", "created_at",
     },
     "candidate_risks": {
-        "id", "artifact_id", "risk_description", "confidence", "supporting_text",
-        "knowledge_type", "review_status", "model", "created_at",
+        "id", "artifact_id", "risk_description", "title", "confidence",
+        "supporting_text", "knowledge_type", "review_status", "model", "created_at",
     },
     "candidate_relationships": {
         "id", "artifact_id", "subject", "predicate", "object", "confidence",

@@ -49,6 +49,18 @@ def _seed_relationship(conn, artifact_id, subject, predicate, obj, confidence=0.
     )
 
 
+def _seed_decision(conn, artifact_id, decision_text, title, confidence=0.8):
+    conn.execute(
+        """
+        INSERT INTO candidate_decisions(
+            artifact_id, decision_text, title, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, ?, ?, 'quote', 'HYPOTHESIS', 'NEW', 'stub', 't')
+        """,
+        (artifact_id, decision_text, title, confidence),
+    )
+
+
 def _seed_release_governance(db):
     """Three docs naming Release Governance three ways, all on Salesforce."""
 
@@ -81,6 +93,29 @@ def test_variants_consolidate_into_one_object(tmp_path):
         # Three documents mention it under three surface forms.
         mentions = repo.mentions_for_object(conn, "capability_release_governance")
         assert {m["artifact_id"] for m in mentions} == {"doc_a", "doc_b", "doc_c"}
+
+
+def test_decisions_consolidate_by_title(tmp_path):
+    # Two documents make the same decision with differently-worded full text but
+    # the same short title; consolidation collapses them into one Decision object
+    # (keyed on the title) instead of one node per sentence.
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_decision(conn, "doc_a", "We will adopt the Launchpad model now",
+                       "Adopt Launchpad model")
+        _seed_decision(conn, "doc_b", "Adopt Launchpad as the operating model",
+                       "Adopt Launchpad model")
+        conn.commit()
+
+    stats = consolidate(db)
+    assert stats.objects_created == 1
+    with connect(db) as conn:
+        obj = repo.get_object(conn, "decision_adopt_launchpad_model")
+        assert obj is not None
+        assert obj["object_type"] == "Decision"
+        mentions = repo.mentions_for_object(conn, "decision_adopt_launchpad_model")
+        assert {m["artifact_id"] for m in mentions} == {"doc_a", "doc_b"}
 
 
 def test_every_object_has_evidence(tmp_path):

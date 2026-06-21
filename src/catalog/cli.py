@@ -27,6 +27,7 @@ from .knowledge import repository as know_repo
 from .knowledge.export import export_graph_json
 from .knowledge.models import ReviewState
 from .knowledge.prompts import make_merge_judge
+from .knowledge.resolution import ResolutionConfig
 from .knowledge.service import (
     approve_relationships_by_confidence,
     consolidate,
@@ -156,6 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
     # -- knowledge consolidation layer (Prompt #6) --
     cons = sub.add_parser("consolidate")
     cons.add_argument("--force", action="store_true")
+    cons.add_argument(
+        "--min-confidence",
+        type=float,
+        default=None,
+        help="ignore candidate mentions weaker than this (0.0-1.0); defaults to "
+        "the built-in noise floor",
+    )
     cons.add_argument(
         "--use-llm",
         action="store_true",
@@ -749,6 +757,10 @@ def _cmd_consolidate(args) -> None:
         merge_provider_name = config.provider
         merge_judge = make_merge_judge(provider, usage_sink=merge_usage)
 
+    resolution_config = None
+    if args.min_confidence is not None:
+        resolution_config = ResolutionConfig(min_mention_confidence=args.min_confidence)
+
     source_paths = _resolve_source_scope(args.config, args.all_sources)
     if source_paths is None:
         print("Consolidating knowledge objects (all sources) ...")
@@ -758,7 +770,11 @@ def _cmd_consolidate(args) -> None:
             "configured source folder(s) ..."
         )
     stats = consolidate(
-        args.db, force=args.force, merge_judge=merge_judge, source_paths=source_paths
+        args.db,
+        force=args.force,
+        config=resolution_config,
+        merge_judge=merge_judge,
+        source_paths=source_paths,
     )
     record_calls(
         args.db, merge_usage, operation="merge", provider_name=merge_provider_name
@@ -965,6 +981,7 @@ def _cmd_review_candidates(args) -> None:
         objects = know_repo.objects_by_status(conn, ReviewState.PROPOSED.value)
         rels = know_repo.relationships_by_status(conn, ReviewState.PROPOSED.value)
         dups = know_analytics.duplicate_candidates(conn, limit=20)
+        cross_type = know_analytics.cross_type_duplicates(conn, limit=20)
 
     print(f"Proposed objects awaiting review: {_fmt(len(objects))}")
     for r in objects[:30]:
@@ -979,6 +996,13 @@ def _cmd_review_candidates(args) -> None:
         print(
             f"  [{d['similarity']:.2f}] {d['left_name']} <-> {d['right_name']} "
             f"({d['object_type']})"
+        )
+
+    print(f"\nSame name, different type (possible mis-typing): {_fmt(len(cross_type))}")
+    for d in cross_type:
+        print(
+            f"  {d['left_name']} ({d['left_type']}) <-> "
+            f"{d['right_name']} ({d['right_type']})"
         )
 
 

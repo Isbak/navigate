@@ -127,7 +127,9 @@ def test_claude_generate_posts_and_parses(monkeypatch):
     assert captured["url"].endswith("/messages")
     assert captured["headers"]["X-api-key"] == "secret"
     assert captured["headers"]["Anthropic-version"] == "2023-06-01"
-    assert captured["body"]["system"] == "sys"
+    # System prompt is cached by default (structured-block form); see the
+    # dedicated caching tests below.
+    assert captured["body"]["system"][0]["text"] == "sys"
     assert captured["body"]["messages"][0]["role"] == "user"
 
 
@@ -152,6 +154,59 @@ def test_claude_generate_sends_image_blocks(monkeypatch):
     assert image_block["source"]["media_type"] == "image/png"
     assert image_block["source"]["data"] == base64.b64encode(png).decode("ascii")
     assert text_block == {"type": "text", "text": "transcribe"}
+
+
+def test_claude_caches_system_prompt_by_default(monkeypatch):
+    captured = {}
+    body = json.dumps({"content": [{"type": "text", "text": "{}"}]}).encode("utf-8")
+    with _fake_urlopen(captured, body) as opener:
+        monkeypatch.setattr("catalog.semantic.providers.claude_provider.request.urlopen", opener)
+        ClaudeProvider("claude-sonnet-4-5", api_key="secret").generate("hi", system="sys")
+    system = captured["body"]["system"]
+    # Structured-block form with an ephemeral cache breakpoint on the prefix.
+    assert isinstance(system, list)
+    assert system[0]["text"] == "sys"
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_claude_caching_can_be_disabled(monkeypatch):
+    captured = {}
+    body = json.dumps({"content": [{"type": "text", "text": "{}"}]}).encode("utf-8")
+    with _fake_urlopen(captured, body) as opener:
+        monkeypatch.setattr("catalog.semantic.providers.claude_provider.request.urlopen", opener)
+        provider = ClaudeProvider(
+            "claude-sonnet-4-5", api_key="secret", cache_system_prompt=False
+        )
+        provider.generate("hi", system="sys")
+    assert captured["body"]["system"] == "sys"
+
+
+def test_claude_records_cache_token_usage(monkeypatch):
+    captured = {}
+    body = json.dumps(
+        {
+            "content": [{"type": "text", "text": "{}"}],
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_read_input_tokens": 900,
+                "cache_creation_input_tokens": 0,
+            },
+        }
+    ).encode("utf-8")
+    with _fake_urlopen(captured, body) as opener:
+        monkeypatch.setattr("catalog.semantic.providers.claude_provider.request.urlopen", opener)
+        provider = ClaudeProvider("claude-sonnet-4-5", api_key="secret")
+        provider.generate("hi", system="sys")
+    assert provider.last_usage.cache_read_tokens == 900
+    assert provider.last_usage.input_tokens == 10
+
+
+def test_build_provider_claude_reads_prompt_cache_option():
+    cfg = LLMConfig(provider="claude", model="claude-sonnet-4-5", options={"prompt_cache": False})
+    provider = build_provider(cfg)
+    assert isinstance(provider, ClaudeProvider)
+    assert provider.cache_system_prompt is False
 
 
 def test_claude_without_images_sends_plain_string(monkeypatch):

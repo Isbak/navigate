@@ -42,6 +42,7 @@ from .semantic import analytics as sem_analytics
 from .semantic import repository as sem_repo
 from .semantic.config import load_llm_config
 from .semantic.providers import LLMError, build_provider
+from .semantic.routing import build_router
 from .semantic.service import classify_documents
 from .watcher import watch
 
@@ -440,10 +441,17 @@ def _cmd_classify(args) -> None:
     config = load_llm_config(args.llm_config)
     try:
         provider = build_provider(config)
+        router = build_router(config, factory=build_provider)
     except LLMError as exc:
         print(f"Error: {exc}")
         return
-    print(f"Classifying with {config.provider} model {provider.model} ...")
+    if config.routing.enabled:
+        print(
+            f"Classifying with {config.provider}: adaptive routing "
+            f"({config.routing.fast_model} -> {config.routing.deep_model}) ..."
+        )
+    else:
+        print(f"Classifying with {config.provider} model {provider.model} ...")
 
     def _show_progress(completed: int, total: int, artifact_id: str) -> None:
         percent = round((completed / total) * 100) if total else 100
@@ -463,6 +471,7 @@ def _cmd_classify(args) -> None:
         max_chunks=config.max_chunks,
         progress_callback=_show_progress,
         provider_name=config.provider,
+        router=router,
     )
     print("Classification complete:")
     print(f"Documents processed: {_fmt(stats.documents_processed)}")

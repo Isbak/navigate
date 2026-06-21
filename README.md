@@ -389,6 +389,7 @@ ollama:
 claude:
   model: claude-sonnet-4-5
   api_key_env: ANTHROPIC_API_KEY  # value is read from env/.env, not YAML
+  prompt_cache: true              # cache the constant system prompt
 
 openai:
   model: gpt-5.5
@@ -397,12 +398,19 @@ openai:
 max_input_chars: 12000      # size of one chunk sent to the model
 chunk_overlap: 500          # overlap between consecutive chunks
 max_chunks: 20              # cap on chunks per document (bounds cost)
+
+routing:                    # adaptive model routing (see docs/llm-optimization.md)
+  enabled: true
+  fast_model: claude-haiku-4-5
+  deep_model: claude-sonnet-4-5
 ```
 
 Long documents are split into chunks of `max_input_chars` characters (with
 `chunk_overlap` overlap, up to `max_chunks` chunks) and classified chunk by
 chunk; the per-chunk results are merged so equations and content past the head
-of the document are no longer lost.
+of the document are no longer lost. Simple documents are routed to a fast model
+and complex ones (or low-confidence results) to a deep model — see
+[Adaptive LLM optimization](#adaptive-llm-optimization).
 
 ### What it determines, per document
 
@@ -916,9 +924,44 @@ confidence — so you can see whether the most expensive documents are also the
 ones the model was most (or least) sure about.
 
 Because every call is attributed to an operation, model, artifact, latency, and
-cost, this ledger is also the basis for later optimization (spotting
+cost, this ledger is also the basis for the optimization strategy below (spotting
 over-triggered vision pages, runaway chunk counts, or a cheaper model that holds
 quality). Local models priced at `0.0` make a fully offline run cost nothing.
+
+## Adaptive LLM optimization
+
+The pipeline keeps LLM cost and latency low while preserving classification
+quality by **spending tokens in proportion to difficulty**. Three mechanisms
+work together (full design in [`docs/llm-optimization.md`](docs/llm-optimization.md)):
+
+- **Prompt caching.** The large, constant classification instructions live in
+  the system prompt and are cached (Anthropic `cache_control`), so repeated calls
+  in a run are billed at the cheaper cache-read rate and skip re-processing ~1k
+  tokens. Same prompt in, same output out — a pure win. Toggle with
+  `prompt_cache` in `config/llm.yml`.
+- **Adaptive model routing.** A cheap, deterministic complexity read (length,
+  symbol density, equation markers, normative/standards language — no LLM) routes
+  ordinary documents to a fast model (`claude-haiku-4-5`) and complex ones —
+  standards, regulations, engineering codes with equations, long dense files — to
+  a deep model (`claude-sonnet-4-5`).
+- **Confidence-based escalation.** When the fast model is unsure (low
+  `type_confidence`), that one document is re-run on the deep model and the deep
+  result is kept — so the strong model is spent only where it is needed.
+
+Routing ships **enabled** in `config/llm.yml`; set `routing.enabled: false` to
+classify every document with the single configured `model`. The savings are
+visible in `catalog cost-report` (Haiku-rate tokens, cache-read tokens, and the
+by-model breakdown).
+
+```yaml
+routing:
+  enabled: true
+  fast_model: claude-haiku-4-5
+  deep_model: claude-sonnet-4-5
+  complexity_threshold: 0.5
+  escalate_below_confidence: 0.6
+  fast_max_chunks: 6
+```
 
 ## Knowledge governance and continuous operations
 

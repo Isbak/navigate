@@ -27,6 +27,11 @@ claude:
   anthropic_version: "2023-06-01"
   max_tokens: 4096
   timeout: 120
+  # Prompt caching: cache the large, constant classification system prompt so
+  # the 2nd+ call within the cache window is billed at the cheaper cache-read
+  # rate and skips re-processing ~1k tokens of instructions. Pure win; the
+  # savings show up in the cache_read/cache_write columns of the cost ledger.
+  prompt_cache: true
 
 openai:
   model: gpt-5.5
@@ -46,3 +51,22 @@ chunk_overlap: 500
 # Hard cap on how many chunks are processed per document (bounds cost on very
 # long files). Remaining text beyond this many chunks is skipped.
 max_chunks: 20
+
+# Adaptive model routing (see docs/llm-optimization.md). A cheap, deterministic
+# complexity read picks a fast model for ordinary documents and a deep model for
+# complex ones (standards, equations, long/dense files). If the fast model is
+# unsure (type_confidence below the threshold), that one document is re-run on
+# the deep model - so the strong model is spent only where it earns its cost.
+#
+# fast_model / deep_model must belong to the active provider above. Set
+# enabled: false to classify every document with the single ``model`` instead.
+routing:
+  enabled: true
+  fast_model: claude-haiku-4-5
+  deep_model: claude-sonnet-4-5
+  # Documents scoring at or above this complexity (0.0-1.0) go straight to deep.
+  complexity_threshold: 0.5
+  # Re-run on the deep model when a fast-model result's type_confidence is below.
+  escalate_below_confidence: 0.6
+  # Chunk budget for the fast path; the deep path uses max_chunks above.
+  fast_max_chunks: 6

@@ -24,15 +24,34 @@ dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.27",
   "pydantic>=2.0",
+  "tree-sitter>=0.23",
 ]
 
 [project.optional-dependencies]
+# Code-aware indexing grammars. Each language is a small wheel; the catalog
+# degrades gracefully (char chunking, no structure) for any that are absent, so
+# this extra is optional. Install with `pip install knowledge-catalog[code]`.
+code = [
+  "tree-sitter-python>=0.23",
+  "tree-sitter-javascript>=0.23",
+  "tree-sitter-typescript>=0.23",
+  "tree-sitter-go>=0.23",
+  "tree-sitter-rust>=0.23",
+  "tree-sitter-java>=0.23",
+  "tree-sitter-c>=0.23",
+  "tree-sitter-cpp>=0.23",
+  "tree-sitter-c-sharp>=0.23",
+  "tree-sitter-ruby>=0.23",
+  "tree-sitter-bash>=0.23",
+]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
   "httpx>=0.27",
   "ruff>=0.6",
   "mypy>=1.10",
+  # Tests exercise the real tree-sitter path, so the grammars come along.
+  "knowledge-catalog[code]",
 ]
 # The MCP grounding server (`catalog mcp`). Optional so the base install is
 # unchanged; imported lazily in catalog.mcp.server.

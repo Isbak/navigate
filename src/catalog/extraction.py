@@ -28,6 +28,7 @@ import logging
 import re
 from pathlib import Path
 
+from .code import detect_language, extract_structure
 from .db import connect, init_db
 from .events import Artifact, ScanEvent, ScanEventBus, ScanStatus
 from .extractors import get_extractor
@@ -41,12 +42,15 @@ MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 EXTRACTED_FILENAME = "extracted.txt"
 LINKS_FILENAME = "links.json"
 METADATA_FILENAME = "metadata.json"
+CODE_STRUCTURE_FILENAME = "code_structure.json"
 
 
 def extract_text(
     path: Path, mode: str = MODE_FAST, usage_sink: list | None = None
 ) -> str:
-    if path.suffix.lower() in {".md", ".txt"}:
+    # Markdown, plain text, and source code are read verbatim; only binary
+    # office/PDF formats need a dedicated extractor.
+    if path.suffix.lower() in {".md", ".txt"} or detect_language(path):
         return path.read_text(encoding="utf-8", errors="replace")
     extractor = get_extractor(path, mode)
     if extractor is None:
@@ -106,6 +110,19 @@ def extract_to_cache(
         json.dumps(raw_links, indent=2), encoding="utf-8"
     )
 
+    # Code-aware indexing: tag source files with their language and cache a
+    # deterministic syntax outline alongside the text. Best-effort - a parse or
+    # grammar problem leaves the language set but skips the structure sidecar.
+    language = detect_language(path)
+    if language:
+        try:
+            structure = extract_structure(text, language)
+            (artifact_cache / CODE_STRUCTURE_FILENAME).write_text(
+                json.dumps(structure.to_dict(), indent=2), encoding="utf-8"
+            )
+        except Exception:  # noqa: BLE001 - structure is an optional enrichment
+            LOGGER.exception("Code structure extraction failed for %s", path)
+
     metadata = {
         "artifact_id": artifact.id,
         "path": artifact.path,
@@ -115,6 +132,7 @@ def extract_to_cache(
         "source_system": artifact.source_system,
         "extracted_at": artifact.last_scanned_at,
         "link_count": len(raw_links),
+        "language": language,
     }
     (artifact_cache / METADATA_FILENAME).write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"

@@ -6,6 +6,13 @@ sources:
   - path: "~/OneDrive"
     source_system: "onedrive_sync"
 
+# Code-aware indexing: when true (the default) the scanner also ingests source
+# code (.py, .ts, .go, .java, ...) and indexes it with the code schema. When it
+# is on, a set of code excludes (node_modules, .venv, dist, build, target, ...)
+# is added automatically on top of the patterns below. Set to false to index
+# documents only.
+index_code: true
+
 exclude:
   - "**/.git/**"
   - "**/node_modules/**"

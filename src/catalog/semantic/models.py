@@ -62,6 +62,7 @@ DOCUMENT_TYPES = (
     "Training",
     "Standard",
     "Regulation",
+    "Source Code",
     "Other",
 )
 
@@ -82,6 +83,14 @@ ENTITY_TYPES = (
     "Standard",
     "Requirement",
     "Equation",
+    # Code-aware indexing: the structural building blocks of a source file.
+    "Module",
+    "Class",
+    "Function",
+    "Library",
+    "Service",
+    "Interface",
+    "API",
 )
 
 # The obligation strength a requirement carries; unknown values normalize to
@@ -101,6 +110,12 @@ RELATIONSHIP_PREDICATES = (
     "satisfies",
     "specifies",
     "supersedes",
+    # Code-aware indexing: how source-code entities relate.
+    "imports",
+    "calls",
+    "extends",
+    "exposes",
+    "defines",
 )
 
 

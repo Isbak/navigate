@@ -26,15 +26,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..code import extract_structure, select_chunks, structure_to_result
 from ..cost import NullUsageLedger, PricingTable, UsageLedger, load_pricing
 from ..db import connect, init_db
 from . import repository as repo
+from .code_prompts import build_code_classification_prompt
 from .parser import (
     ParseError,
     merge_classification_results,
     parse_classification_response,
 )
-from .prompts import build_classification_prompt, chunk_text
+from .prompts import build_classification_prompt
 from .providers.base import BaseLLMProvider, LLMError
 from .routing import ProviderRouter, RouteDecision, single_provider_router
 
@@ -136,13 +138,18 @@ def _run_chunks(
     max_input_chars: int,
     artifact_id: str,
     ledger,
+    prompt_builder=build_classification_prompt,
 ):
-    """Classify every chunk with ``provider`` and merge the per-chunk results."""
+    """Classify every chunk with ``provider`` and merge the per-chunk results.
+
+    ``prompt_builder`` selects the prompt schema (document vs. source code); both
+    builders share a signature so this loop is identical for either.
+    """
 
     total = len(chunks)
     results = []
     for index, chunk in enumerate(chunks):
-        system, user = build_classification_prompt(
+        system, user = prompt_builder(
             metadata,
             chunk,
             max_input_chars=max_input_chars,
@@ -182,6 +189,14 @@ def _classify_one(
 
     metadata = _read_metadata(artifact_dir)
 
+    # Source files take the code-aware path: chunk along function/class
+    # boundaries and classify with the code schema/prompt. Everything else keeps
+    # the document path byte-for-byte.
+    language = metadata.get("language")
+    prompt_builder = (
+        build_code_classification_prompt if language else build_classification_prompt
+    )
+
     # Adaptive routing: a cheap, deterministic complexity read picks the model
     # (and chunk budget) for this document before any token is spent.
     decision: RouteDecision = router.route(text, metadata)
@@ -189,7 +204,7 @@ def _classify_one(
 
     # Process the whole document: split into chunks and merge per-chunk results
     # so equations and content past the head of a long document are not lost.
-    chunks = chunk_text(text, max_input_chars, chunk_overlap)[:chunk_cap]
+    chunks = select_chunks(text, language, max_input_chars, chunk_overlap)[:chunk_cap]
     provider = decision.provider
     result = _run_chunks(
         provider,
@@ -198,6 +213,7 @@ def _classify_one(
         max_input_chars=max_input_chars,
         artifact_id=artifact_id,
         ledger=ledger,
+        prompt_builder=prompt_builder,
     )
 
     # Escalation safety net: when the fast model is unsure about the document
@@ -209,7 +225,9 @@ def _classify_one(
             result.type_confidence,
         )
         provider = router.deep_provider
-        deep_chunks = chunk_text(text, max_input_chars, chunk_overlap)[:max_chunks]
+        deep_chunks = select_chunks(text, language, max_input_chars, chunk_overlap)[
+            :max_chunks
+        ]
         result = _run_chunks(
             provider,
             metadata,
@@ -217,6 +235,17 @@ def _classify_one(
             max_input_chars=max_input_chars,
             artifact_id=artifact_id,
             ledger=ledger,
+            prompt_builder=prompt_builder,
+        )
+
+    # Fold in the deterministic code outline (modules/classes/functions/imports)
+    # read straight from the syntax tree. Its type_confidence is 0.0 so the
+    # model's summary/type still win the merge while the precise structural
+    # entities and relationships are added (and beat lower-confidence duplicates).
+    if language:
+        structure = extract_structure(text, language)
+        result = merge_classification_results(
+            [result, structure_to_result(structure, metadata)]
         )
 
     repo.delete_for_artifact(conn, artifact_id)

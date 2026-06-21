@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from ..cost import NullUsageLedger, PricingTable, UsageLedger, load_pricing
 from ..db import connect, init_db
 from . import repository as repo
 from .parser import (
@@ -137,6 +138,7 @@ def _classify_one(
     force: bool,
     now: str,
     stats: ClassifyStats,
+    ledger,
 ) -> None:
     artifact_id = artifact_dir.name
     text = (artifact_dir / EXTRACTED_FILENAME).read_text(encoding="utf-8")
@@ -166,6 +168,7 @@ def _classify_one(
             chunk_total=total,
         )
         raw = provider.generate(user, system=system)
+        ledger.record(provider, operation="classify", artifact_id=artifact_id)
         results.append(parse_classification_response(raw))
     result = merge_classification_results(results)
 
@@ -201,6 +204,9 @@ def classify_documents(
     chunk_overlap: int = 500,
     max_chunks: int = 20,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    pricing: PricingTable | None = None,
+    provider_name: str | None = None,
+    track_cost: bool = True,
 ) -> ClassifyStats:
     """Classify cached documents with ``provider`` and persist the results.
 
@@ -220,6 +226,11 @@ def classify_documents(
     started_at = _utc_now()
     stats = ClassifyStats()
     with connect(db_path) as conn:
+        if track_cost:
+            table = pricing if pricing is not None else load_pricing()
+            ledger = UsageLedger(conn, table, provider_name=provider_name)
+        else:
+            ledger = NullUsageLedger()
         artifact_dirs = _artifact_dirs(
             cache_path, artifact_ids, _active_artifact_ids(conn)
         )
@@ -236,6 +247,7 @@ def classify_documents(
                     force=force,
                     now=started_at,
                     stats=stats,
+                    ledger=ledger,
                 )
                 conn.commit()
             except (LLMError, ParseError) as exc:

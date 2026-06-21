@@ -48,12 +48,13 @@ def parse_merge_answer(raw: str) -> bool:
     return bool(_YES_RE.search(text))
 
 
-def make_merge_judge(provider: BaseLLMProvider):
+def make_merge_judge(provider: BaseLLMProvider, usage_sink: list | None = None):
     """Adapt a provider into a ``(a, b, type) -> bool`` merge judge.
 
     Any provider error is swallowed into a conservative "no merge" so that an
     unavailable model degrades to the deterministic resolver rather than
-    aborting consolidation.
+    aborting consolidation. When ``usage_sink`` is given, each call's token usage
+    is appended to it so the caller can price and persist the merge cost.
     """
 
     from ..semantic.providers.base import LLMError
@@ -64,6 +65,10 @@ def make_merge_judge(provider: BaseLLMProvider):
             raw = provider.generate(prompt, system=SYSTEM_PROMPT)
         except LLMError:
             return False
+        if usage_sink is not None:
+            usage = getattr(provider, "last_usage", None)
+            if usage is not None:
+                usage_sink.append(usage)
         return parse_merge_answer(raw)
 
     return judge

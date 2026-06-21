@@ -11,8 +11,10 @@ import base64
 import json
 import logging
 import os
+import time
 from urllib import error, request
 
+from catalog.cost.usage import Usage
 from catalog.env import load_dotenv
 
 from .base import BaseLLMProvider, LLMError
@@ -57,6 +59,7 @@ class ClaudeProvider(BaseLLMProvider):
         images: list[bytes] | None = None,
         image_media_type: str = "image/png",
     ) -> str:
+        self._last_usage = None
         if not self._api_key:
             raise LLMError(
                 f"Anthropic API key not set; export {self.api_key_env} or pass api_key"
@@ -97,6 +100,7 @@ class ClaudeProvider(BaseLLMProvider):
             },
             method="POST",
         )
+        started = time.perf_counter()
         try:
             with request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
@@ -104,6 +108,7 @@ class ClaudeProvider(BaseLLMProvider):
             raise LLMError(f"Claude request failed: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise LLMError(f"Claude returned invalid JSON envelope: {exc}") from exc
+        latency_ms = (time.perf_counter() - started) * 1000
 
         try:
             content = body["content"]
@@ -117,6 +122,16 @@ class ClaudeProvider(BaseLLMProvider):
         ]
         if not text_parts:
             raise LLMError("Claude response missing text content")
+
+        usage = body.get("usage") or {}
+        self._last_usage = Usage(
+            model=self.model,
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+            cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+            latency_ms=latency_ms,
+        )
         return "".join(text_parts)
 
 

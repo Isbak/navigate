@@ -83,6 +83,15 @@ class GraphRAGAssistant:
         self.retriever = GraphRetriever(client, graph=self.graph)
         self.memory = memory if memory is not None else ConversationMemory()
         self.default_depth = depth
+        # Token usage from each answer; drained by the CLI to price and persist.
+        self._usages: list = []
+
+    def drain_usage(self) -> list:
+        """Return and clear token usage recorded since the last drain."""
+
+        usages = self._usages
+        self._usages = []
+        return usages
 
     # -- public API -----------------------------------------------------------
 
@@ -263,10 +272,14 @@ class GraphRAGAssistant:
 
     def _generate(self, prompt: str) -> str:
         try:
-            return self.provider.generate(prompt, system=SYSTEM_PROMPT).strip()
+            text = self.provider.generate(prompt, system=SYSTEM_PROMPT).strip()
         except LLMError as exc:
             # Surface the failure honestly rather than fabricating an answer.
             return f"[LLM error: {exc}]"
+        usage = getattr(self.provider, "last_usage", None)
+        if usage is not None:
+            self._usages.append(usage)
+        return text
 
     def _citations(self, retrieval: GraphRetrieval, context: ContextBundle) -> Citations:
         objects = [(o.id, o.label) for o in retrieval.objects if o.is_seed]

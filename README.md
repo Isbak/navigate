@@ -865,6 +865,61 @@ Every answered question logs (at `-v`) its reasoning type, the counts of objects
 relationships, and evidence retrieved, the prompt size, the response time, and
 the resulting confidence band.
 
+## Token cost and extraction quality
+
+Every LLM call in the pipeline reports the tokens it used; the catalog now
+captures that usage (instead of discarding it), prices it, and records one row
+per call so the **cost of extraction** is measurable and can be weighed against
+the quality of what came back.
+
+Four call sites are tracked, each tagged with an `operation`:
+
+- `classify` — semantic classification (one call per document chunk),
+- `vision-extract` — vision transcription of hard-to-read PDF pages,
+- `ask` — GraphRAG questions,
+- `merge` — the consolidation merge judge.
+
+Each call is captured as a row in the regenerable `llm_usage` table: the
+operation, the artifact it served (for `classify`/`vision-extract`), the model
+and provider, input/output tokens (plus Anthropic cache tokens), latency, and the
+USD cost computed at record time.
+
+### Pricing
+
+Rates live in `config/pricing.yml`, in USD per 1,000,000 tokens:
+
+```yaml
+currency: USD
+unit: per_1m_tokens
+models:
+  claude-sonnet-4-5: { input: 3.00, output: 15.00, cache_read: 0.30, cache_write: 3.75 }
+  gpt-5.5:           { input: 5.00, output: 15.00 }
+  qwen3:14b:         { input: 0.0,  output: 0.0 }   # local models are free
+```
+
+A model that is not listed is *unpriced*: its tokens are still recorded, but
+`cost_usd` is left empty and the report flags it. Editing the rates affects only
+calls recorded afterwards — past spend is reported as it was actually billed.
+
+### Reporting
+
+```bash
+catalog cost-report                              # totals + breakdowns (table)
+catalog cost-report --top 50                     # more per-document rows
+catalog cost-report --format json --out exports/cost.json
+```
+
+The report shows total tokens and cost, a breakdown **by operation** and **by
+model**, the **cost per document** (highest first), and a **cost vs. quality**
+view that places each document's spend next to the model's own classification
+confidence — so you can see whether the most expensive documents are also the
+ones the model was most (or least) sure about.
+
+Because every call is attributed to an operation, model, artifact, latency, and
+cost, this ledger is also the basis for later optimization (spotting
+over-triggered vision pages, runaway chunk counts, or a cheaper model that holds
+quality). Local models priced at `0.0` make a fully offline run cost nothing.
+
 ## Knowledge governance and continuous operations
 
 The `catalog.governance` package turns the consolidated graph from a periodically

@@ -49,7 +49,24 @@ def _build_assistant(args) -> GraphRAGAssistant | None:
         return None
     client = _build_client(args)
     depth = _clamp_depth(getattr(args, "depth", DEFAULT_DEPTH))
-    return GraphRAGAssistant(client, provider, depth=depth)
+    assistant = GraphRAGAssistant(client, provider, depth=depth)
+    # Remember the provider name so token usage can be labelled when flushed.
+    assistant._provider_name = config.provider  # type: ignore[attr-defined]
+    return assistant
+
+
+def _flush_ask_usage(args, assistant: GraphRAGAssistant) -> None:
+    """Price and persist the token usage from a GraphRAG answer."""
+
+    from ..cost import record_calls
+
+    provider_name = getattr(assistant, "_provider_name", None)
+    record_calls(
+        args.db,
+        assistant.drain_usage(),
+        operation="ask",
+        provider_name=provider_name,
+    )
 
 
 def _clamp_depth(depth: int | None) -> int:
@@ -137,6 +154,7 @@ def _cmd_ask(args) -> None:
         return
     answer = assistant.ask(args.question, depth=_clamp_depth(args.depth))
     _render_answer(args, answer)
+    _flush_ask_usage(args, assistant)
 
 
 def _render_proof(args) -> None:
@@ -181,6 +199,7 @@ def _cmd_explain(args) -> None:
         return
     answer = assistant.explain(args.object, depth=_clamp_depth(args.depth))
     _render_answer(args, answer)
+    _flush_ask_usage(args, assistant)
 
 
 def _cmd_impact(args) -> None:
@@ -189,6 +208,7 @@ def _cmd_impact(args) -> None:
         return
     answer = assistant.impact(args.object, depth=_clamp_depth(args.depth))
     _render_answer(args, answer)
+    _flush_ask_usage(args, assistant)
 
 
 def _cmd_compare(args) -> None:
@@ -197,6 +217,7 @@ def _cmd_compare(args) -> None:
         return
     answer = assistant.compare(args.object1, args.object2, depth=_clamp_depth(args.depth))
     _render_answer(args, answer)
+    _flush_ask_usage(args, assistant)
 
 
 def _cmd_path_reason(args) -> None:
@@ -205,6 +226,7 @@ def _cmd_path_reason(args) -> None:
         return
     answer = assistant.path_reason(args.object1, args.object2, depth=_clamp_depth(args.depth))
     _render_answer(args, answer)
+    _flush_ask_usage(args, assistant)
 
 
 # -- parser wiring ------------------------------------------------------------

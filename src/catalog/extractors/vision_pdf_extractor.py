@@ -74,6 +74,16 @@ class VisionPdfExtractor:
         # config on first use (and may be ``None`` if vision is unavailable).
         self._provider = provider
         self._provider_resolved = provider is not None
+        # Per-page token usage accumulated during extraction; drained by the
+        # caller (extract_all) so this extractor stays free of the database.
+        self._usages: list = []
+
+    def drain_usage(self) -> list:
+        """Return and clear the token usage recorded since the last drain."""
+
+        usages = self._usages
+        self._usages = []
+        return usages
 
     def _get_provider(self):
         if not self._provider_resolved:
@@ -113,10 +123,14 @@ class VisionPdfExtractor:
     def _transcribe(self, page, provider) -> str | None:
         try:
             png = page.get_pixmap(dpi=self._vision.dpi).tobytes("png")
-            return provider.generate(VISION_PROMPT, system=VISION_SYSTEM, images=[png])
+            text = provider.generate(VISION_PROMPT, system=VISION_SYSTEM, images=[png])
         except Exception:  # noqa: BLE001 - keep the page's fast text on any failure
             LOGGER.exception("Vision transcription failed for a page; keeping text")
             return None
+        usage = getattr(provider, "last_usage", None)
+        if usage is not None:
+            self._usages.append(usage)
+        return text
 
 
 __all__ = ["VisionPdfExtractor", "needs_vision", "VISION_SYSTEM", "VISION_PROMPT"]

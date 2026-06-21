@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 from .config import load_config
+from .cost import record_calls
+from .cost import repository as cost_repo
 from .db import DatabaseNotWritableError, connect, init_db, latest_scan_run
 from .extraction import extract_all
 from .extractors.config import MODE_FAST, VALID_MODES, load_extraction_config
@@ -133,6 +135,15 @@ def build_parser() -> argparse.ArgumentParser:
     classify.add_argument("--force", action="store_true")
 
     sub.add_parser("classification-stats")
+
+    cost = sub.add_parser(
+        "cost-report", help="report LLM token usage and cost (cost of extraction)"
+    )
+    cost.add_argument("--format", choices=["table", "json"], default="table")
+    cost.add_argument("--out", default=None, help="write the JSON report to this path")
+    cost.add_argument(
+        "--top", type=int, default=20, help="rows in per-document sections (default 20)"
+    )
 
     summary = sub.add_parser("show-summary")
     summary.add_argument("--artifact-id", required=True)
@@ -451,6 +462,7 @@ def _cmd_classify(args) -> None:
         chunk_overlap=config.chunk_overlap,
         max_chunks=config.max_chunks,
         progress_callback=_show_progress,
+        provider_name=config.provider,
     )
     print("Classification complete:")
     print(f"Documents processed: {_fmt(stats.documents_processed)}")
@@ -526,6 +538,108 @@ def _cmd_classification_stats(args) -> None:
             print("  (none)")
         for c in concepts:
             print(f"  {c['name']} -> {', '.join(c['domains'])}")
+
+
+def _usd(value) -> str:
+    return f"${value:,.4f}" if value is not None else "-"
+
+
+def _row_to_dict(row) -> dict:
+    return {key: row[key] for key in row.keys()}
+
+
+def _cost_report_data(conn, top: int) -> dict:
+    t = cost_repo.totals(conn)
+    return {
+        "totals": _row_to_dict(t),
+        "by_operation": [_row_to_dict(r) for r in cost_repo.by_operation(conn)],
+        "by_model": [_row_to_dict(r) for r in cost_repo.by_model(conn)],
+        "cost_per_document": [
+            _row_to_dict(r) for r in cost_repo.cost_per_document(conn, top)
+        ],
+        "cost_vs_quality": [
+            _row_to_dict(r) for r in cost_repo.cost_vs_quality(conn, top)
+        ],
+    }
+
+
+def _render_cost_table(data: dict) -> None:
+    t = data["totals"]
+    if not t["calls"]:
+        print(
+            "No LLM usage recorded yet. Run: catalog classify "
+            "(or catalog extract --mode high-quality)"
+        )
+        return
+
+    print("LLM cost report (cost of extraction)")
+    print(f"Total calls: {_fmt(t['calls'])}")
+    print(f"Input tokens: {_fmt(t['input_tokens'])}")
+    print(f"Output tokens: {_fmt(t['output_tokens'])}")
+    print(f"Total tokens: {_fmt(t['total_tokens'])}")
+    if t["cache_read_tokens"] or t["cache_write_tokens"]:
+        print(
+            f"Cache tokens (read/write): {_fmt(t['cache_read_tokens'])}"
+            f" / {_fmt(t['cache_write_tokens'])}"
+        )
+    print(f"Total cost: {_usd(t['cost_usd'])}")
+    if t["unpriced_calls"]:
+        print(
+            f"Unpriced calls (no rate in pricing.yml): {_fmt(t['unpriced_calls'])}"
+        )
+
+    print("\nBy operation:")
+    for r in data["by_operation"]:
+        print(
+            f"  {r['key']}: {_fmt(r['calls'])} calls, "
+            f"{_fmt(r['total_tokens'])} tokens, {_usd(r['cost_usd'])}"
+        )
+
+    print("\nBy model:")
+    for r in data["by_model"]:
+        marker = " (unpriced)" if r["cost_usd"] is None else ""
+        print(
+            f"  {r['key']}{marker}: {_fmt(r['calls'])} calls, "
+            f"{_fmt(r['total_tokens'])} tokens, {_usd(r['cost_usd'])}"
+        )
+
+    print(f"\nCost per document (top {len(data['cost_per_document'])}):")
+    if not data["cost_per_document"]:
+        print("  (none)")
+    for r in data["cost_per_document"]:
+        print(f"  {_usd(r['cost_usd'])}  {_fmt(r['total_tokens'])} tokens  {r['key']}")
+
+    print("\nCost vs. quality (spend beside the model's classification confidence):")
+    rows = data["cost_vs_quality"]
+    if not rows:
+        print("  (none)")
+    for r in rows:
+        conf = r["type_confidence"]
+        conf_s = f"{conf:.2f}" if conf is not None else "n/a"
+        dtype = r["document_type"] or "unclassified"
+        print(f"  {_usd(r['cost_usd'])}  conf {conf_s}  [{dtype}]  {r['key']}")
+
+
+def _cmd_cost_report(args) -> None:
+    # The report reads the cost_usd persisted when each call was recorded (priced
+    # from config/pricing.yml at that time), so editing rates affects only future
+    # calls - past spend stays as it was actually billed.
+    init_db(args.db)
+    with connect(args.db) as conn:
+        data = _cost_report_data(conn, args.top)
+
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        print(f"Wrote cost report to {out_path}")
+
+    if args.format == "json":
+        if not args.out:
+            print(json.dumps(data, indent=2))
+        return
+
+    _render_cost_table(data)
 
 
 def _cmd_show_summary(args) -> None:
@@ -613,6 +727,8 @@ def _resolve_source_scope(config_path: str, all_sources: bool) -> list[str] | No
 
 def _cmd_consolidate(args) -> None:
     merge_judge = None
+    merge_usage: list = []
+    merge_provider_name = None
     if args.use_llm:
         config = load_llm_config(args.llm_config)
         try:
@@ -621,7 +737,8 @@ def _cmd_consolidate(args) -> None:
             print(f"Error: {exc}")
             return
         print(f"Using {config.provider} model {provider.model} for merge suggestions ...")
-        merge_judge = make_merge_judge(provider)
+        merge_provider_name = config.provider
+        merge_judge = make_merge_judge(provider, usage_sink=merge_usage)
 
     source_paths = _resolve_source_scope(args.config, args.all_sources)
     if source_paths is None:
@@ -633,6 +750,9 @@ def _cmd_consolidate(args) -> None:
         )
     stats = consolidate(
         args.db, force=args.force, merge_judge=merge_judge, source_paths=source_paths
+    )
+    record_calls(
+        args.db, merge_usage, operation="merge", provider_name=merge_provider_name
     )
     print("Consolidation complete:")
     print(f"Mentions gathered: {_fmt(stats.mentions_gathered)}")
@@ -1074,6 +1194,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         _cmd_classify(args)
     elif args.command == "classification-stats":
         _cmd_classification_stats(args)
+    elif args.command == "cost-report":
+        _cmd_cost_report(args)
     elif args.command == "show-summary":
         _cmd_show_summary(args)
     elif args.command == "show-decisions":

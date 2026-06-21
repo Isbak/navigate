@@ -10,8 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from urllib import error, request
 
+from catalog.cost.usage import Usage
 from catalog.env import load_dotenv
 
 from .base import BaseLLMProvider, LLMError
@@ -43,6 +45,7 @@ class OpenAIProvider(BaseLLMProvider):
         self._api_key = api_key or os.environ.get(api_key_env)
 
     def generate(self, prompt: str, *, system: str | None = None) -> str:
+        self._last_usage = None
         if not self._api_key:
             raise LLMError(
                 f"OpenAI API key not set; export {self.api_key_env} or pass api_key"
@@ -69,6 +72,7 @@ class OpenAIProvider(BaseLLMProvider):
             },
             method="POST",
         )
+        started = time.perf_counter()
         try:
             with request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
@@ -76,11 +80,21 @@ class OpenAIProvider(BaseLLMProvider):
             raise LLMError(f"OpenAI request failed: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise LLMError(f"OpenAI returned invalid JSON envelope: {exc}") from exc
+        latency_ms = (time.perf_counter() - started) * 1000
 
         try:
-            return body["choices"][0]["message"]["content"]
+            text = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMError(f"Unexpected OpenAI response shape: {exc}") from exc
+
+        usage = body.get("usage") or {}
+        self._last_usage = Usage(
+            model=self.model,
+            input_tokens=int(usage.get("prompt_tokens", 0) or 0),
+            output_tokens=int(usage.get("completion_tokens", 0) or 0),
+            latency_ms=latency_ms,
+        )
+        return text
 
 
 __all__ = ["OpenAIProvider", "DEFAULT_BASE_URL", "DEFAULT_TIMEOUT", "API_KEY_ENV"]

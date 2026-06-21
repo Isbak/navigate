@@ -28,7 +28,7 @@ import logging
 import re
 from pathlib import Path
 
-from .db import connect
+from .db import connect, init_db
 from .events import Artifact, ScanEvent, ScanEventBus, ScanStatus
 from .extractors import get_extractor
 from .extractors.config import MODE_FAST
@@ -43,13 +43,20 @@ LINKS_FILENAME = "links.json"
 METADATA_FILENAME = "metadata.json"
 
 
-def extract_text(path: Path, mode: str = MODE_FAST) -> str:
+def extract_text(
+    path: Path, mode: str = MODE_FAST, usage_sink: list | None = None
+) -> str:
     if path.suffix.lower() in {".md", ".txt"}:
         return path.read_text(encoding="utf-8", errors="replace")
     extractor = get_extractor(path, mode)
     if extractor is None:
         return ""
-    return extractor.extract_text(path)
+    text = extractor.extract_text(path)
+    # The vision extractor records per-page token usage; hand it to the caller so
+    # the database write stays in extract_all rather than the extractor.
+    if usage_sink is not None and hasattr(extractor, "drain_usage"):
+        usage_sink.extend(extractor.drain_usage())
+    return text
 
 
 def extract_links_from_text(text: str) -> list[dict[str, str | None]]:
@@ -70,17 +77,22 @@ def extract_links_from_text(text: str) -> list[dict[str, str | None]]:
 
 
 def extract_to_cache(
-    artifact: Artifact, cache_dir: Path, mode: str = MODE_FAST
+    artifact: Artifact,
+    cache_dir: Path,
+    mode: str = MODE_FAST,
+    usage_sink: list | None = None,
 ) -> int:
     """Extract text + raw links for one artifact into its cache directory.
 
     Returns the number of raw links written. Never raises for extraction
     failures - text falls back to empty so the cache entry is still created.
+    When ``usage_sink`` is given, any LLM token usage from vision extraction is
+    appended to it (the caller prices and persists it).
     """
 
     path = Path(artifact.path)
     try:
-        text = extract_text(path, mode)
+        text = extract_text(path, mode, usage_sink=usage_sink)
     except Exception:  # noqa: BLE001 - extraction is best-effort
         LOGGER.exception("Text extraction failed for %s", path)
         text = ""
@@ -178,6 +190,9 @@ def extract_all(
     links_extracted = 0
     errors = 0
     seen_ids: set[str] = set()
+    # (artifact_id, Usage) pairs from vision extraction, priced and persisted in
+    # one transaction after the batch so the cache pass stays free of DB writes.
+    collected_usage: list[tuple[str, object]] = []
 
     with connect(db_path) as conn:
         rows = conn.execute(
@@ -195,16 +210,45 @@ def extract_all(
             continue
         seen_ids.add(row["id"])
         try:
+            usages: list = []
             links_extracted += extract_to_cache(
-                _artifact_from_row(row), cache_path, mode
+                _artifact_from_row(row), cache_path, mode, usage_sink=usages
             )
+            collected_usage.extend((row["id"], usage) for usage in usages)
             artifacts_processed += 1
         except Exception:  # noqa: BLE001 - one bad file must not abort the batch
             LOGGER.exception("Extraction failed for %s", row["path"])
             errors += 1
+
+    _record_extraction_usage(db_path, collected_usage)
 
     return {
         "artifacts_processed": artifacts_processed,
         "links_extracted": links_extracted,
         "errors": errors,
     }
+
+
+def _record_extraction_usage(
+    db_path: str | Path, collected_usage: list[tuple[str, object]]
+) -> None:
+    """Price and persist vision-extraction token usage. No-op when empty."""
+
+    if not collected_usage:
+        return
+    from .cost import UsageLedger, load_pricing
+    from .semantic.config import load_llm_config
+
+    init_db(db_path)
+    pricing = load_pricing()
+    try:
+        provider_name = load_llm_config().provider
+    except Exception:  # noqa: BLE001 - a config problem must not fail extraction
+        provider_name = None
+    with connect(db_path) as conn:
+        ledger = UsageLedger(conn, pricing, provider_name=provider_name)
+        for artifact_id, usage in collected_usage:
+            ledger.record_usage(
+                usage, operation="vision-extract", artifact_id=artifact_id
+            )
+        conn.commit()

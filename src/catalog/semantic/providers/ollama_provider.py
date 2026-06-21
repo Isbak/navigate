@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from urllib import error, request
+
+from catalog.cost.usage import Usage
 
 from .base import BaseLLMProvider, LLMError
 
@@ -33,6 +36,7 @@ class OllamaProvider(BaseLLMProvider):
         self.timeout = timeout
 
     def generate(self, prompt: str, *, system: str | None = None) -> str:
+        self._last_usage = None
         payload: dict = {
             "model": self.model,
             "prompt": prompt,
@@ -50,6 +54,7 @@ class OllamaProvider(BaseLLMProvider):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        started = time.perf_counter()
         try:
             with request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
@@ -57,10 +62,18 @@ class OllamaProvider(BaseLLMProvider):
             raise LLMError(f"Ollama request failed: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise LLMError(f"Ollama returned invalid JSON envelope: {exc}") from exc
+        latency_ms = (time.perf_counter() - started) * 1000
 
         response = body.get("response")
         if not isinstance(response, str):
             raise LLMError("Ollama response missing 'response' field")
+
+        self._last_usage = Usage(
+            model=self.model,
+            input_tokens=int(body.get("prompt_eval_count", 0) or 0),
+            output_tokens=int(body.get("eval_count", 0) or 0),
+            latency_ms=latency_ms,
+        )
         return response
 
 

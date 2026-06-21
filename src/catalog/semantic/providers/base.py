@@ -16,6 +16,10 @@ To add a provider:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # avoid an import cycle: cost depends on nothing in providers
+    from catalog.cost.usage import Usage
 
 
 class LLMError(RuntimeError):
@@ -34,12 +38,25 @@ class BaseLLMProvider(ABC):
         if not model:
             raise ValueError("A model name is required")
         self._model = model
+        self._last_usage: "Usage | None" = None
 
     @property
     def model(self) -> str:
         """The concrete model identifier, recorded as provenance."""
 
         return self._model
+
+    @property
+    def last_usage(self) -> "Usage | None":
+        """Token usage from the most recent successful :meth:`generate`, or None.
+
+        Providers that cannot report usage - and stub providers in tests - leave
+        this ``None``, so usage recording is always optional and never an error.
+        It is reset at the start of each call so a failure cannot leak the prior
+        call's usage to the next reader.
+        """
+
+        return self._last_usage
 
     @abstractmethod
     def generate(self, prompt: str, *, system: str | None = None) -> str:

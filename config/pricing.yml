@@ -1,0 +1,27 @@
+# Model pricing for the token-cost ledger (catalog cost-report).
+#
+# Rates are USD per 1,000,000 tokens. A model that is not listed here is
+# "unpriced": its token usage is still recorded, but cost_usd is left NULL and
+# the report flags it. Local models cost nothing, so list them at 0.0.
+#
+# Optional per-model keys ``cache_read`` / ``cache_write`` price Anthropic's
+# cached input tokens (prompt caching); when omitted they fall back to ``input``.
+currency: USD
+unit: per_1m_tokens
+models:
+  claude-sonnet-4-5:
+    input: 3.00
+    output: 15.00
+    cache_read: 0.30
+    cache_write: 3.75
+  claude-opus-4-8:
+    input: 15.00
+    output: 75.00
+    cache_read: 1.50
+    cache_write: 18.75
+  gpt-5.5:
+    input: 5.00
+    output: 15.00
+  qwen3:14b:
+    input: 0.0
+    output: 0.0

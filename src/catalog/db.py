@@ -489,6 +489,35 @@ CREATE TABLE IF NOT EXISTS compliance_runs(
   errors INTEGER DEFAULT 0
 );
 -- ---------------------------------------------------------------------------
+-- LLM token usage & cost ledger.
+--
+-- One row per provider call (classify chunk, vision page, GraphRAG answer, merge
+-- judge). Captures the token usage providers return but the text-only generate()
+-- contract discards, plus the USD cost computed from config/pricing.yml at record
+-- time (NULL when the model is unpriced). Fully regenerable by re-running the
+-- operations, so a layout change drops and recreates the table. ``artifact_id``
+-- references the content-addressed id softly (index, not FK), like the semantic
+-- tables, and is NULL for operations that are not per-document (ask, merge).
+CREATE TABLE IF NOT EXISTS llm_usage(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation TEXT NOT NULL,
+  artifact_id TEXT,
+  model TEXT NOT NULL,
+  provider TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  latency_ms REAL,
+  cost_usd REAL,
+  run_id INTEGER,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_operation ON llm_usage(operation);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_artifact ON llm_usage(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_model ON llm_usage(model);
+-- ---------------------------------------------------------------------------
 -- API job tracking (REST API layer).
 --
 -- The REST API can trigger the long-running pipeline operations (scan, extract,
@@ -683,6 +712,26 @@ def _stale_semantic_tables(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
+# Expected columns for the LLM usage ledger. It is fully regenerable by re-running
+# the LLM operations, so a layout change drops and recreates it in place.
+_EXPECTED_USAGE_COLUMNS = {
+    "llm_usage": {
+        "id", "operation", "artifact_id", "model", "provider",
+        "input_tokens", "output_tokens", "total_tokens",
+        "cache_read_tokens", "cache_write_tokens", "latency_ms",
+        "cost_usd", "run_id", "created_at",
+    },
+}
+
+
+def _stale_usage_tables(conn: sqlite3.Connection) -> list[str]:
+    return [
+        table
+        for table, expected in _EXPECTED_USAGE_COLUMNS.items()
+        if _columns_mismatch(conn, table, expected)
+    ]
+
+
 # Expected columns for the knowledge-layer tables. Like the semantic tables they
 # are fully regenerable (via ``catalog consolidate``), so a layout change drops
 # and recreates them. They are dropped as a set, children first, because of the
@@ -842,6 +891,10 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         # Semantic tables evolve independently and are regenerable via
         # ``catalog classify``; drop any whose columns no longer match.
         for table in _stale_semantic_tables(conn):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+        # The usage ledger is regenerable by re-running the LLM operations; drop
+        # it if its columns no longer match so the recreated schema is current.
+        for table in _stale_usage_tables(conn):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
         # Knowledge tables are regenerable via ``catalog consolidate``; if any of
         # them changed shape, drop the whole set (children first) and recreate.

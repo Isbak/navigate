@@ -637,6 +637,13 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
+    # WAL lets the API server, background jobs, and the file watcher read while a
+    # writer holds the lock instead of blocking each other. synchronous=NORMAL is
+    # the durable, recommended pairing for WAL (no data loss, only the last txn
+    # is at risk on OS crash). Skipped for in-memory DBs, which do not support WAL.
+    if str(path) != ":memory:":
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 

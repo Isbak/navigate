@@ -36,6 +36,7 @@ from .parser import (
 )
 from .prompts import build_classification_prompt, chunk_text
 from .providers.base import BaseLLMProvider, LLMError
+from .routing import ProviderRouter, RouteDecision, single_provider_router
 
 LOGGER = logging.getLogger(__name__)
 
@@ -127,10 +128,37 @@ def _read_metadata(artifact_dir: Path) -> dict:
         return {"artifact_id": artifact_dir.name}
 
 
+def _run_chunks(
+    provider: BaseLLMProvider,
+    metadata: dict,
+    chunks: list[str],
+    *,
+    max_input_chars: int,
+    artifact_id: str,
+    ledger,
+):
+    """Classify every chunk with ``provider`` and merge the per-chunk results."""
+
+    total = len(chunks)
+    results = []
+    for index, chunk in enumerate(chunks):
+        system, user = build_classification_prompt(
+            metadata,
+            chunk,
+            max_input_chars=max_input_chars,
+            chunk_index=index,
+            chunk_total=total,
+        )
+        raw = provider.generate(user, system=system)
+        ledger.record(provider, operation="classify", artifact_id=artifact_id)
+        results.append(parse_classification_response(raw))
+    return merge_classification_results(results)
+
+
 def _classify_one(
     conn,
     artifact_dir: Path,
-    provider: BaseLLMProvider,
+    router: ProviderRouter,
     *,
     max_input_chars: int,
     chunk_overlap: int,
@@ -154,23 +182,42 @@ def _classify_one(
 
     metadata = _read_metadata(artifact_dir)
 
+    # Adaptive routing: a cheap, deterministic complexity read picks the model
+    # (and chunk budget) for this document before any token is spent.
+    decision: RouteDecision = router.route(text, metadata)
+    chunk_cap = min(max_chunks, decision.max_chunks)
+
     # Process the whole document: split into chunks and merge per-chunk results
     # so equations and content past the head of a long document are not lost.
-    chunks = chunk_text(text, max_input_chars, chunk_overlap)[:max_chunks]
-    total = len(chunks)
-    results = []
-    for index, chunk in enumerate(chunks):
-        system, user = build_classification_prompt(
-            metadata,
-            chunk,
-            max_input_chars=max_input_chars,
-            chunk_index=index,
-            chunk_total=total,
+    chunks = chunk_text(text, max_input_chars, chunk_overlap)[:chunk_cap]
+    provider = decision.provider
+    result = _run_chunks(
+        provider,
+        metadata,
+        chunks,
+        max_input_chars=max_input_chars,
+        artifact_id=artifact_id,
+        ledger=ledger,
+    )
+
+    # Escalation safety net: when the fast model is unsure about the document
+    # type, re-run the document on the deep model and trust that result instead.
+    if router.should_escalate(decision, result.type_confidence):
+        LOGGER.debug(
+            "Escalating %s to deep model (type_confidence=%.2f)",
+            artifact_id,
+            result.type_confidence,
         )
-        raw = provider.generate(user, system=system)
-        ledger.record(provider, operation="classify", artifact_id=artifact_id)
-        results.append(parse_classification_response(raw))
-    result = merge_classification_results(results)
+        provider = router.deep_provider
+        deep_chunks = chunk_text(text, max_input_chars, chunk_overlap)[:max_chunks]
+        result = _run_chunks(
+            provider,
+            metadata,
+            deep_chunks,
+            max_input_chars=max_input_chars,
+            artifact_id=artifact_id,
+            ledger=ledger,
+        )
 
     repo.delete_for_artifact(conn, artifact_id)
     repo.persist_classification(
@@ -207,6 +254,7 @@ def classify_documents(
     pricing: PricingTable | None = None,
     provider_name: str | None = None,
     track_cost: bool = True,
+    router: ProviderRouter | None = None,
 ) -> ClassifyStats:
     """Classify cached documents with ``provider`` and persist the results.
 
@@ -217,10 +265,17 @@ def classify_documents(
     stats and records a row in ``classification_runs``. When provided,
     ``progress_callback`` is called after each artifact with
     ``(completed, total, artifact_id)``.
+
+    ``router`` enables adaptive model routing: when given, it selects a fast or
+    deep model per document (and may escalate uncertain results). When omitted,
+    the single ``provider`` is used for every document - the original behaviour.
     """
 
     cache_path = Path(cache_dir)
     init_db(db_path)
+
+    if router is None:
+        router = single_provider_router(provider, max_chunks=max_chunks)
 
     artifact_ids = _normalize_ids(artifact_id)
     started_at = _utc_now()
@@ -240,7 +295,7 @@ def classify_documents(
                 _classify_one(
                     conn,
                     artifact_dir,
-                    provider,
+                    router,
                     max_input_chars=max_input_chars,
                     chunk_overlap=chunk_overlap,
                     max_chunks=max_chunks,
@@ -267,7 +322,7 @@ def classify_documents(
             conn,
             started_at=started_at,
             completed_at=completed_at,
-            model=provider.model,
+            model=router.primary_model,
             documents_processed=stats.documents_processed,
             documents_skipped=stats.documents_skipped,
             errors=stats.errors,

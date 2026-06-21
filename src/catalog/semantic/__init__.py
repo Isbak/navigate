@@ -31,7 +31,7 @@ from .analytics import (
     top_domains,
     top_technologies,
 )
-from .config import LLMConfig, load_llm_config
+from .config import LLMConfig, RoutingConfig, load_llm_config
 from .models import (
     ClassificationResult,
     KnowledgeType,
@@ -40,14 +40,19 @@ from .models import (
 from .parser import parse_classification_response, validate_confidence
 from .prompts import build_classification_prompt
 from .providers import BaseLLMProvider, LLMError, build_provider
+from .routing import ProviderRouter, build_router, profile_document
 from .service import ClassifyStats, classify_documents
 
 __all__ = [
     "LLMConfig",
+    "RoutingConfig",
     "load_llm_config",
     "BaseLLMProvider",
     "LLMError",
     "build_provider",
+    "ProviderRouter",
+    "build_router",
+    "profile_document",
     "ClassificationResult",
     "KnowledgeType",
     "ReviewStatus",

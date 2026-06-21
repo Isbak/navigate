@@ -107,39 +107,15 @@ def chunk_text(text: str, size: int, overlap: int = 0) -> list[str]:
     return [body[start : start + size] for start in range(0, len(body), step)]
 
 
-def build_classification_prompt(
-    metadata: dict,
-    text: str,
-    *,
-    max_input_chars: int = 12000,
-    chunk_index: int = 0,
-    chunk_total: int = 1,
-) -> tuple[str, str]:
-    """Return ``(system_prompt, user_prompt)`` for one document (or chunk).
-
-    ``metadata`` is the artifact's ``metadata.json`` (filename, file_type, ...);
-    ``text`` is the extracted document text, truncated to ``max_input_chars`` as
-    a safety net. When a document is processed in pieces, ``chunk_index`` and
-    ``chunk_total`` (1-based count) are surfaced to the model so it knows it is
-    seeing part of a longer document.
-    """
-
-    body = text or ""
-    truncated = len(body) > max_input_chars
-    if truncated:
-        body = body[:max_input_chars]
-
-    filename = metadata.get("filename", metadata.get("artifact_id", "unknown"))
-    file_type = metadata.get("file_type", "unknown")
-    chunk_note = (
-        "- note: this is chunk %d of %d of a longer document; extract only what "
-        "this chunk supports" % (chunk_index + 1, chunk_total)
-        if chunk_total > 1
-        else ""
-    )
-
-    instructions = f"""\
-Analyze the document below and return a single JSON object with these keys:
+# The classification schema, controlled vocabularies, rules, and worked example
+# never change between documents, so they live in the *system* prompt. Keeping
+# this block constant lets the Claude provider cache it (prompt caching) and have
+# the model reuse it across every chunk and document instead of re-reading ~1k
+# tokens of instructions on every call. Only the per-document metadata and text
+# go in the user prompt below.
+_CLASSIFICATION_INSTRUCTIONS = f"""\
+Analyze the document text the user provides and return a single JSON object with
+these keys:
 
 - "document_type": one of [{_bullet(DOCUMENT_TYPES)}].
 - "type_confidence": number 0.0-1.0 for the document_type.
@@ -194,19 +170,67 @@ Rules:
 - Return ONLY the JSON object, no markdown fences, no commentary.
 
 Example of the expected shape (values are illustrative, do not copy them):
-{json.dumps(_EXAMPLE, indent=2)}
+{json.dumps(_EXAMPLE, indent=2)}"""
 
+
+# The full, constant system prompt: persona + schema/rules/example. Built once at
+# import so every call reuses the exact same string (a requirement for caching).
+CLASSIFICATION_SYSTEM = SYSTEM_PROMPT + "\n\n" + _CLASSIFICATION_INSTRUCTIONS
+
+
+def build_classification_prompt(
+    metadata: dict,
+    text: str,
+    *,
+    max_input_chars: int = 12000,
+    chunk_index: int = 0,
+    chunk_total: int = 1,
+) -> tuple[str, str]:
+    """Return ``(system_prompt, user_prompt)`` for one document (or chunk).
+
+    The system prompt is the constant :data:`CLASSIFICATION_SYSTEM` (persona +
+    schema + rules + example) - identical for every call so it can be cached. The
+    user prompt carries only the per-document parts: ``metadata`` (filename,
+    file_type, ...) and ``text``, truncated to ``max_input_chars`` as a safety
+    net. When a document is processed in pieces, ``chunk_index`` and
+    ``chunk_total`` (1-based count) are surfaced so the model knows it is seeing
+    part of a longer document.
+    """
+
+    body = text or ""
+    truncated = len(body) > max_input_chars
+    if truncated:
+        body = body[:max_input_chars]
+
+    filename = metadata.get("filename", metadata.get("artifact_id", "unknown"))
+    file_type = metadata.get("file_type", "unknown")
+    chunk_note = (
+        "- note: this is chunk %d of %d of a longer document; extract only what "
+        "this chunk supports\n" % (chunk_index + 1, chunk_total)
+        if chunk_total > 1
+        else ""
+    )
+    truncation_note = (
+        "- note: text was truncated to the first %d characters\n" % max_input_chars
+        if truncated
+        else ""
+    )
+
+    user = f"""\
 Document metadata:
 - filename: {filename}
 - file_type: {file_type}
-{chunk_note}
-{"- note: text was truncated to the first %d characters" % max_input_chars if truncated else ""}
-
+{chunk_note}{truncation_note}
 --- BEGIN DOCUMENT TEXT ---
 {body}
 --- END DOCUMENT TEXT ---
 """
-    return SYSTEM_PROMPT, instructions
+    return CLASSIFICATION_SYSTEM, user
 
 
-__all__ = ["build_classification_prompt", "chunk_text", "SYSTEM_PROMPT"]
+__all__ = [
+    "build_classification_prompt",
+    "chunk_text",
+    "SYSTEM_PROMPT",
+    "CLASSIFICATION_SYSTEM",
+]

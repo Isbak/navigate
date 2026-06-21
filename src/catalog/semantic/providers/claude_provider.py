@@ -41,12 +41,19 @@ class ClaudeProvider(BaseLLMProvider):
         anthropic_version: str = DEFAULT_ANTHROPIC_VERSION,
         api_key: str | None = None,
         api_key_env: str = API_KEY_ENV,
+        cache_system_prompt: bool = True,
     ) -> None:
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_tokens = max_tokens
         self.anthropic_version = anthropic_version
+        # The classification/vision/graphrag system prompts are large and
+        # constant across every call, so caching the prefix lets Anthropic charge
+        # the cheaper cache-read rate (and skip re-processing it) on the 2nd+ call
+        # within the cache window. The savings are recorded via the cache_* token
+        # fields the cost ledger already tracks. Disable for one-shot callers.
+        self.cache_system_prompt = cache_system_prompt
         load_dotenv()
         self.api_key_env = api_key_env
         self._api_key = api_key or os.environ.get(api_key_env)
@@ -87,7 +94,18 @@ class ClaudeProvider(BaseLLMProvider):
             "messages": [{"role": "user", "content": content}],
         }
         if system:
-            payload["system"] = system
+            if self.cache_system_prompt:
+                # The structured-block form lets us mark the (constant) system
+                # prompt as a cacheable prefix.
+                payload["system"] = [
+                    {
+                        "type": "text",
+                        "text": system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            else:
+                payload["system"] = system
 
         data = json.dumps(payload).encode("utf-8")
         req = request.Request(

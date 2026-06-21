@@ -88,11 +88,13 @@ def _run_classify(ctx: JobContext, artifact_id: str | None) -> dict:
         )
     from ..semantic.config import load_llm_config
     from ..semantic.providers import LLMError, build_provider
+    from ..semantic.routing import build_router
     from ..semantic.service import classify_documents
 
     config = load_llm_config(ctx.llm_config)
     try:
         provider = build_provider(config)
+        router = build_router(config, factory=build_provider)
     except LLMError as exc:
         raise JobError(str(exc)) from exc
 
@@ -104,6 +106,8 @@ def _run_classify(ctx: JobContext, artifact_id: str | None) -> dict:
         max_input_chars=config.max_input_chars,
         chunk_overlap=config.chunk_overlap,
         max_chunks=config.max_chunks,
+        provider_name=config.provider,
+        router=router,
     )
     return {
         "documents_processed": stats.documents_processed,

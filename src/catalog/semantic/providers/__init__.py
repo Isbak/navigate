@@ -35,6 +35,7 @@ def _build_claude(config: LLMConfig) -> BaseLLMProvider:
         max_tokens=int(opts.get("max_tokens", 4096)),
         anthropic_version=opts.get("anthropic_version", "2023-06-01"),
         api_key_env=opts.get("api_key_env", "ANTHROPIC_API_KEY"),
+        cache_system_prompt=bool(opts.get("prompt_cache", True)),
     )
 
 

@@ -28,6 +28,25 @@ DEFAULT_MAX_CHUNKS = 20
 
 
 @dataclass(frozen=True)
+class RoutingConfig:
+    """Adaptive model-routing settings (the ``routing`` block of ``llm.yml``).
+
+    When ``enabled``, simple documents are classified with ``fast_model`` and
+    complex ones (or fast-model results below ``escalate_below_confidence``) with
+    ``deep_model``. Both models must belong to the active provider. The defaults
+    here keep routing *off* so a missing block, or any non-Claude single-model
+    setup, behaves exactly as before.
+    """
+
+    enabled: bool = False
+    fast_model: str = ""
+    deep_model: str = ""
+    complexity_threshold: float = 0.5
+    escalate_below_confidence: float = 0.6
+    fast_max_chunks: int = 6
+
+
+@dataclass(frozen=True)
 class LLMConfig:
     """Resolved configuration for the active LLM provider.
 
@@ -45,6 +64,7 @@ class LLMConfig:
     max_input_chars: int = DEFAULT_MAX_INPUT_CHARS
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     max_chunks: int = DEFAULT_MAX_CHUNKS
+    routing: RoutingConfig = field(default_factory=RoutingConfig)
     options: dict = field(default_factory=dict)
 
 
@@ -67,6 +87,7 @@ def load_llm_config(path: str | Path = DEFAULT_LLM_CONFIG_PATH) -> LLMConfig:
     max_input_chars = int(raw.get("max_input_chars", DEFAULT_MAX_INPUT_CHARS))
     chunk_overlap = int(raw.get("chunk_overlap", DEFAULT_CHUNK_OVERLAP))
     max_chunks = int(raw.get("max_chunks", DEFAULT_MAX_CHUNKS))
+    routing = _parse_routing(raw.get("routing"))
 
     return LLMConfig(
         provider=provider,
@@ -74,12 +95,34 @@ def load_llm_config(path: str | Path = DEFAULT_LLM_CONFIG_PATH) -> LLMConfig:
         max_input_chars=max_input_chars,
         chunk_overlap=chunk_overlap,
         max_chunks=max_chunks,
+        routing=routing,
         options=block,
+    )
+
+
+def _parse_routing(raw: object) -> RoutingConfig:
+    """Parse the optional ``routing`` block, falling back to disabled routing."""
+
+    if not isinstance(raw, dict):
+        return RoutingConfig()
+    defaults = RoutingConfig()
+    return RoutingConfig(
+        enabled=bool(raw.get("enabled", defaults.enabled)),
+        fast_model=str(raw.get("fast_model", defaults.fast_model)).strip(),
+        deep_model=str(raw.get("deep_model", defaults.deep_model)).strip(),
+        complexity_threshold=float(
+            raw.get("complexity_threshold", defaults.complexity_threshold)
+        ),
+        escalate_below_confidence=float(
+            raw.get("escalate_below_confidence", defaults.escalate_below_confidence)
+        ),
+        fast_max_chunks=int(raw.get("fast_max_chunks", defaults.fast_max_chunks)),
     )
 
 
 __all__ = [
     "LLMConfig",
+    "RoutingConfig",
     "load_llm_config",
     "DEFAULT_LLM_CONFIG_PATH",
     "DEFAULT_PROVIDER",

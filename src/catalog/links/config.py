@@ -31,7 +31,7 @@ class LinkConfig:
     systems: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @classmethod
-    def empty(cls) -> "LinkConfig":
+    def empty(cls) -> LinkConfig:
         return cls()
 
     def is_internal(self, normalized_url: str) -> bool:

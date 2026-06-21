@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
-from urllib import error, request
+from urllib import request
 
 from catalog.cost.usage import Usage
 from catalog.env import load_dotenv
 
+from ._http import DEFAULT_BACKOFF, DEFAULT_MAX_RETRIES, request_json
 from .base import BaseLLMProvider, LLMError
 
 LOGGER = logging.getLogger(__name__)
@@ -36,10 +36,14 @@ class OpenAIProvider(BaseLLMProvider):
         timeout: int = DEFAULT_TIMEOUT,
         api_key: str | None = None,
         api_key_env: str = API_KEY_ENV,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_BACKOFF,
     ) -> None:
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
         load_dotenv()
         self.api_key_env = api_key_env
         self._api_key = api_key or os.environ.get(api_key_env)
@@ -72,15 +76,13 @@ class OpenAIProvider(BaseLLMProvider):
             },
             method="POST",
         )
-        started = time.perf_counter()
-        try:
-            with request.urlopen(req, timeout=self.timeout) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except (error.URLError, TimeoutError, OSError) as exc:
-            raise LLMError(f"OpenAI request failed: {exc}") from exc
-        except json.JSONDecodeError as exc:
-            raise LLMError(f"OpenAI returned invalid JSON envelope: {exc}") from exc
-        latency_ms = (time.perf_counter() - started) * 1000
+        body, latency_ms = request_json(
+            req,
+            label="OpenAI",
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            backoff=self.retry_backoff,
+        )
 
         try:
             text = body["choices"][0]["message"]["content"]

@@ -45,7 +45,7 @@ def run(ctx) -> StageResult:
         with Timer() as t:
             answers = [assistant.ask(q["question"]) for q in questions]
 
-        for q, answer in zip(questions, answers):
+        for q, answer in zip(questions, answers, strict=False):
             if answer.supported == q["expect_supported"]:
                 grounded_correct += 1
 

@@ -8,7 +8,7 @@ serializers in :mod:`catalog.api.serializers` map rows onto these models.
 
 from __future__ import annotations
 
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -48,7 +48,7 @@ class StatsResponse(BaseModel):
     evidence_count: int
     pending_review_count: int
     stale_object_count: int
-    last_scan: Optional[dict[str, Any]] = None
+    last_scan: dict[str, Any] | None = None
 
 
 # -- artifacts ----------------------------------------------------------------
@@ -58,14 +58,14 @@ class Artifact(BaseModel):
     path: str
     filename: str
     file_type: str
-    size_bytes: Optional[int] = None
-    created_at: Optional[str] = None
-    modified_at: Optional[str] = None
-    sha256: Optional[str] = None
-    source_system: Optional[str] = None
-    scan_status: Optional[str] = None
-    first_seen_at: Optional[str] = None
-    last_scanned_at: Optional[str] = None
+    size_bytes: int | None = None
+    created_at: str | None = None
+    modified_at: str | None = None
+    sha256: str | None = None
+    source_system: str | None = None
+    scan_status: str | None = None
+    first_seen_at: str | None = None
+    last_scanned_at: str | None = None
     extraction_status: str = "PENDING"
     classification_status: str = "UNCLASSIFIED"
 
@@ -77,17 +77,17 @@ class Link(BaseModel):
     source_artifact_id: str
     raw_url: str
     normalized_url: str
-    anchor_text: Optional[str] = None
-    target_system: Optional[str] = None
-    target_type: Optional[str] = None
-    link_kind: Optional[str] = None
-    discovered_at: Optional[str] = None
-    last_seen_at: Optional[str] = None
-    status: Optional[str] = None
+    anchor_text: str | None = None
+    target_system: str | None = None
+    target_type: str | None = None
+    link_kind: str | None = None
+    discovered_at: str | None = None
+    last_seen_at: str | None = None
+    status: str | None = None
 
 
 class CountItem(BaseModel):
-    key: Optional[str] = None
+    key: str | None = None
     count: int
 
 
@@ -109,22 +109,22 @@ class KnowledgeObject(BaseModel):
     id: str
     name: str
     object_type: str
-    description: Optional[str] = None
-    canonical_name: Optional[str] = None
-    confidence: Optional[float] = None
-    status: Optional[str] = None
-    merge_confidence: Optional[float] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    review_status: Optional[str] = None
-    freshness_state: Optional[str] = None
-    quality_score: Optional[float] = None
-    owner: Optional[str] = None
+    description: str | None = None
+    canonical_name: str | None = None
+    confidence: float | None = None
+    status: str | None = None
+    merge_confidence: float | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    review_status: str | None = None
+    freshness_state: str | None = None
+    quality_score: float | None = None
+    owner: str | None = None
     # Per-row child counts, so a list/table view can show badges without an
     # N+1 fan-out to the relationships / evidence / mentions sub-resources.
-    relationship_count: Optional[int] = None
-    evidence_count: Optional[int] = None
-    mention_count: Optional[int] = None
+    relationship_count: int | None = None
+    evidence_count: int | None = None
+    mention_count: int | None = None
 
 
 class Relationship(BaseModel):
@@ -132,31 +132,31 @@ class Relationship(BaseModel):
     source_object: str
     predicate: str
     target_object: str
-    confidence: Optional[float] = None
-    evidence: Optional[Any] = None
-    review_status: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    confidence: float | None = None
+    evidence: Any | None = None
+    review_status: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class Mention(BaseModel):
     id: int
     knowledge_object_id: str
     artifact_id: str
-    confidence: Optional[float] = None
-    source_text: Optional[str] = None
-    created_at: Optional[str] = None
+    confidence: float | None = None
+    source_text: str | None = None
+    created_at: str | None = None
 
 
 class Evidence(BaseModel):
     id: int
     knowledge_object_id: str
     artifact_id: str
-    quote: Optional[str] = None
-    page_number: Optional[int] = None
-    slide_number: Optional[int] = None
-    confidence: Optional[float] = None
-    created_at: Optional[str] = None
+    quote: str | None = None
+    page_number: int | None = None
+    slide_number: int | None = None
+    confidence: float | None = None
+    created_at: str | None = None
 
 
 # -- governance ---------------------------------------------------------------
@@ -165,38 +165,38 @@ class GovernanceAlert(BaseModel):
     id: int
     alert_type: str
     severity: str
-    object_id: Optional[str] = None
-    message: Optional[str] = None
-    status: Optional[str] = None
-    created_at: Optional[str] = None
-    resolved_at: Optional[str] = None
+    object_id: str | None = None
+    message: str | None = None
+    status: str | None = None
+    created_at: str | None = None
+    resolved_at: str | None = None
 
 
 class ReviewQueueItem(BaseModel):
     object_id: str
-    name: Optional[str] = None
-    object_type: Optional[str] = None
-    review_state: Optional[str] = None
-    freshness_state: Optional[str] = None
-    last_confidence: Optional[float] = None
+    name: str | None = None
+    object_type: str | None = None
+    review_state: str | None = None
+    freshness_state: str | None = None
+    last_confidence: float | None = None
 
 
 class StaleItem(BaseModel):
     object_id: str
-    name: Optional[str] = None
-    object_type: Optional[str] = None
-    freshness_state: Optional[str] = None
-    freshness_score: Optional[float] = None
-    last_seen_at: Optional[str] = None
+    name: str | None = None
+    object_type: str | None = None
+    freshness_state: str | None = None
+    freshness_score: float | None = None
+    last_seen_at: str | None = None
 
 
 class QualityItem(BaseModel):
     object_id: str
-    canonical_name: Optional[str] = None
-    object_type: Optional[str] = None
-    quality_score: Optional[float] = None
-    evidence_count: Optional[int] = None
-    document_count: Optional[int] = None
+    canonical_name: str | None = None
+    object_type: str | None = None
+    quality_score: float | None = None
+    evidence_count: int | None = None
+    document_count: int | None = None
 
 
 class QualityResponse(BaseModel):
@@ -208,7 +208,7 @@ class DomainHealth(BaseModel):
     """A knowledge domain (business area) and its governance health."""
 
     domain: str
-    owner: Optional[str] = None
+    owner: str | None = None
     object_count: int
     avg_quality: float
     avg_freshness: float
@@ -220,13 +220,13 @@ class ChangeLogEntry(BaseModel):
 
     id: int
     change_type: str
-    target_kind: Optional[str] = None
-    object_id: Optional[str] = None
-    field: Optional[str] = None
-    old_value: Optional[str] = None
-    new_value: Optional[str] = None
-    detail: Optional[str] = None
-    detected_at: Optional[str] = None
+    target_kind: str | None = None
+    object_id: str | None = None
+    field: str | None = None
+    old_value: str | None = None
+    new_value: str | None = None
+    detail: str | None = None
+    detected_at: str | None = None
 
 
 class GrowthPoint(BaseModel):
@@ -256,10 +256,10 @@ class GraphNode(BaseModel):
     id: str
     label: str
     type: str
-    confidence: Optional[float] = None
-    status: Optional[str] = None
-    documents: Optional[int] = None
-    mentions: Optional[int] = None
+    confidence: float | None = None
+    status: str | None = None
+    documents: int | None = None
+    mentions: int | None = None
 
 
 class GraphEdge(BaseModel):
@@ -267,8 +267,8 @@ class GraphEdge(BaseModel):
     source: str
     target: str
     predicate: str
-    confidence: Optional[float] = None
-    status: Optional[str] = None
+    confidence: float | None = None
+    status: str | None = None
 
 
 class GraphNeighbor(BaseModel):
@@ -320,11 +320,11 @@ class Job(BaseModel):
     id: int
     job_type: str
     status: str
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    error_message: Optional[str] = None
-    result_summary: Optional[dict[str, Any]] = None
-    created_at: Optional[str] = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
+    result_summary: dict[str, Any] | None = None
+    created_at: str | None = None
 
 
 # -- ask / GraphRAG -----------------------------------------------------------
@@ -342,7 +342,7 @@ class AskResponse(BaseModel):
     objects_used: list[dict[str, Any]] = Field(default_factory=list)
     relationships_used: list[dict[str, Any]] = Field(default_factory=list)
     evidence_used: list[dict[str, Any]] = Field(default_factory=list)
-    context: Optional[str] = None
+    context: str | None = None
 
 
 # -- action acknowledgements --------------------------------------------------
@@ -376,7 +376,7 @@ class ComplianceStandard(BaseModel):
     authority: str = ""
     version: str = ""
     jurisdiction: str = ""
-    status: Optional[str] = None
+    status: str | None = None
 
 
 class ComplianceRequirement(BaseModel):
@@ -387,7 +387,7 @@ class ComplianceRequirement(BaseModel):
     title: str = ""
     requirement_text: str = ""
     obligation_level: str = ""
-    status: Optional[str] = None
+    status: str | None = None
 
 
 class ComplianceEquationVariable(BaseModel):
@@ -411,7 +411,7 @@ class ComplianceEquation(BaseModel):
     latex: str = ""
     valid: bool = False
     validation_note: str = ""
-    status: Optional[str] = None
+    status: str | None = None
 
 
 class ComplianceCoverageStandard(BaseModel):
@@ -441,9 +441,9 @@ class ComplianceGap(BaseModel):
 class ComplianceAssessment(BaseModel):
     id: int
     requirement_object_id: str
-    requirement_name: Optional[str] = None
-    control_object_id: Optional[str] = None
-    control_name: Optional[str] = None
+    requirement_name: str | None = None
+    control_object_id: str | None = None
+    control_name: str | None = None
     status: str
     review_status: str
     assessed_against_version: str = ""
@@ -451,17 +451,17 @@ class ComplianceAssessment(BaseModel):
 
 
 class ComplianceEvidence(BaseModel):
-    artifact_id: Optional[str] = None
+    artifact_id: str | None = None
     quote: str = ""
     clause_ref: str = ""
-    page_number: Optional[int] = None
-    confidence: Optional[float] = None
+    page_number: int | None = None
+    confidence: float | None = None
 
 
 class ComplianceProofAssessment(BaseModel):
     assessment_id: int
-    control_object_id: Optional[str] = None
-    control_name: Optional[str] = None
+    control_object_id: str | None = None
+    control_name: str | None = None
     status: str
     rationale: str = ""
     assessed_against_version: str = ""

@@ -7,21 +7,17 @@ import logging
 import sys
 from pathlib import Path
 
+from .compliance.cli import add_compliance_parser, run_compliance
 from .config import load_config
 from .cost import record_calls
 from .cost import repository as cost_repo
 from .db import DatabaseNotWritableError, connect, init_db, latest_scan_run
 from .extraction import extract_all
-from .extractors.config import MODE_FAST, VALID_MODES, load_extraction_config
-from .compliance.cli import add_compliance_parser, run_compliance
+from .extractors.config import VALID_MODES, load_extraction_config
 from .governance import service as gov_service
 from .governance.cli import add_governance_parser, run_governance
 from .graph.cli import add_graph_parser, run_graph
 from .graphrag.cli import add_graphrag_parsers, run_graphrag
-from .links import discover_links, load_link_config
-from .links import repository as link_repo
-from .maintenance import purge_path
-from .scanner import scan
 from .knowledge import analytics as know_analytics
 from .knowledge import repository as know_repo
 from .knowledge.export import export_graph_json
@@ -34,11 +30,15 @@ from .knowledge.service import (
     review_object,
     review_relationship,
 )
+from .links import discover_links, load_link_config
+from .links import repository as link_repo
+from .maintenance import purge_path
 from .rdf.config import load_jena_config
 from .rdf.export import DEFAULT_OUT_DIR as RDF_OUT_DIR
 from .rdf.export import FORMATS as RDF_FORMATS
 from .rdf.export import export_rdf, rdf_stats, validate_rdf
 from .rdf.fuseki import FusekiError, clear_dataset, fuseki_load
+from .scanner import scan
 from .semantic import analytics as sem_analytics
 from .semantic import repository as sem_repo
 from .semantic.config import load_llm_config
@@ -562,7 +562,9 @@ def _usd(value) -> str:
 
 
 def _row_to_dict(row) -> dict:
-    return {key: row[key] for key in row.keys()}
+    # sqlite3.Row iterates values, not keys, so .keys() is required here (a Row
+    # is not a dict; SIM118 does not apply).
+    return {key: row[key] for key in row.keys()}  # noqa: SIM118
 
 
 def _cost_report_data(conn, top: int) -> dict:

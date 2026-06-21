@@ -7,8 +7,6 @@ artifacts and links. The API is exercised through FastAPI's TestClient (httpx).
 
 from __future__ import annotations
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 

@@ -1,6 +1,7 @@
 """Library-level tests for graph exploration, metrics, health and exports."""
 
 import json
+from datetime import UTC
 
 import networkx as nx
 
@@ -119,9 +120,9 @@ def test_health_report(approved_graph):
 
 def test_health_flags_isolated_and_evidenceless(approved_graph):
     # Add an approved object with no relationships and no evidence.
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with connect(approved_graph.db) as conn:
         conn.execute(
             "INSERT INTO knowledge_objects(id, name, object_type, description, "

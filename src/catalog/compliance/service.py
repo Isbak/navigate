@@ -21,17 +21,17 @@ GAP instead.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..db import connect, init_db
 from . import repository as repo
 from .config import ComplianceConfig, load_compliance_config
 from .models import (
-    AssessStats,
-    AssessmentStatus,
-    ComplianceReviewState,
     EVIDENCED_STATUSES,
+    AssessmentStatus,
+    AssessStats,
+    ComplianceReviewState,
 )
 from .sync import sync_requirements
 
@@ -41,7 +41,7 @@ _STALE_FRESHNESS = {"STALE", "ARCHIVED"}
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _evidence_age_days(created_at: str | None, now: datetime) -> float | None:
@@ -52,7 +52,7 @@ def _evidence_age_days(created_at: str | None, now: datetime) -> float | None:
     except ValueError:
         return None
     if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
+        ts = ts.replace(tzinfo=UTC)
     return (now - ts).total_seconds() / 86400.0
 
 
@@ -115,7 +115,7 @@ def assess(
     config = config or load_compliance_config()
     init_db(db_path)
     now = _utc_now()
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
     stats = AssessStats()
 
     with connect(db_path) as conn:

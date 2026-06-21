@@ -22,8 +22,8 @@ The query library lives in ``queries/`` as ``*.rq`` files; ``list_queries`` /
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from rdflib import Graph
 
@@ -84,13 +84,13 @@ class GraphClient:
     @classmethod
     def from_graph(
         cls, graph: Graph, *, queries_dir: str | Path = DEFAULT_QUERIES_DIR
-    ) -> "GraphClient":
+    ) -> GraphClient:
         return cls(graph=graph, queries_dir=queries_dir)
 
     @classmethod
     def from_sqlite(
         cls, conn, *, queries_dir: str | Path = DEFAULT_QUERIES_DIR
-    ) -> "GraphClient":
+    ) -> GraphClient:
         """Build the in-memory approved graph from a SQLite connection."""
 
         from .loader import build_graph
@@ -104,7 +104,7 @@ class GraphClient:
         *,
         fetcher: Fetcher | None = None,
         queries_dir: str | Path = DEFAULT_QUERIES_DIR,
-    ) -> "GraphClient":
+    ) -> GraphClient:
         return cls(query_url=config.query_url, fetcher=fetcher, queries_dir=queries_dir)
 
     @property
@@ -147,7 +147,7 @@ class GraphClient:
         bindings = payload.get("results", {}).get("bindings", [])
         rows: list[dict] = []
         for binding in bindings:
-            row = {var: None for var in head}
+            row = dict.fromkeys(head)
             for var, cell in binding.items():
                 row[var] = cell.get("value")
             rows.append(row)

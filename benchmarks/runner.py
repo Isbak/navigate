@@ -21,14 +21,15 @@ import json
 import platform
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .corpus import load_corpus, materialize_docs, write_sources_yml
 from .providers import StubAnswerProvider, StubClassifyProvider
 from .report import build_report, render_console, write_json
-from .stages import STAGE_ORDER, BenchContext
 from .stages import (
+    STAGE_ORDER,
+    BenchContext,
     ask_bench,
     classify_bench,
     consolidate_bench,
@@ -135,7 +136,7 @@ def run_suite(
 def _metadata(provider: str) -> dict:
     return {
         "provider": provider,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "python": platform.python_version(),
     }
 

@@ -18,7 +18,7 @@ what makes them straightforward to test against fixed dates.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .config import FreshnessConfig
 from .models import FreshnessState
@@ -32,7 +32,7 @@ def _parse(ts: str | None) -> datetime | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 

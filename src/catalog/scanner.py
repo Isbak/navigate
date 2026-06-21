@@ -14,9 +14,9 @@ from __future__ import annotations
 import fnmatch
 import logging
 import threading
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 from .config import load_config
 from .db import (
@@ -37,11 +37,11 @@ SUPPORTED_EXTENSIONS = {".docx", ".pptx", ".xlsx", ".pdf", ".md", ".txt"}
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _to_iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+    return datetime.fromtimestamp(ts, UTC).isoformat()
 
 
 def is_excluded(path: Path, patterns: list[str]) -> bool:
@@ -70,7 +70,7 @@ def iter_documents(source: Path, exclude: list[str]) -> Iterator[Path]:
 def _build_artifact(
     path: Path,
     source_system: str,
-    existing: dict[str, "object"],
+    existing: dict[str, object],
     scanned_at: str,
 ) -> Artifact:
     """Hash ``path``, read its metadata, and classify it against the index."""
@@ -107,7 +107,7 @@ def _build_artifact(
     )
 
 
-def _flag_duplicates(artifacts: list[Artifact], existing: dict[str, "object"]) -> list[Artifact]:
+def _flag_duplicates(artifacts: list[Artifact], existing: dict[str, object]) -> list[Artifact]:
     """Mark every redundant copy of identical content as DUPLICATE.
 
     For each group of files sharing a sha256 the "primary" keeps its lifecycle

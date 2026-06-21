@@ -9,7 +9,6 @@ gated here (CI-runner timing variance).
 from __future__ import annotations
 
 import pytest
-
 from benchmarks.runner import _load_thresholds, run_suite
 from benchmarks.stages import STAGE_ORDER
 

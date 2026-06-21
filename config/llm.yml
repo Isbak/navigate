@@ -11,6 +11,14 @@
 
 provider: claude
 
+# Every provider retries *transient* failures - HTTP 429 (rate limited), 5xx,
+# and connection/timeout errors - with bounded exponential backoff, so a single
+# rate-limit blip no longer aborts a run that has already spent tokens. Permanent
+# failures (4xx other than 429, malformed responses) still fail fast. These knobs
+# can be set per provider block; the defaults below apply when omitted.
+#   max_retries:   3      # extra attempts after the first try
+#   retry_backoff: 0.5    # seconds before the first retry, doubled each attempt
+
 ollama:
   model: qwen3:14b
   # Base URL of a running Ollama server.

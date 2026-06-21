@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
-import time
-from urllib import error, request
+from urllib import request
 
 from catalog.cost.usage import Usage
 
+from ._http import DEFAULT_BACKOFF, DEFAULT_MAX_RETRIES, request_json
 from .base import BaseLLMProvider, LLMError
 
 LOGGER = logging.getLogger(__name__)
@@ -30,10 +30,14 @@ class OllamaProvider(BaseLLMProvider):
         *,
         host: str = DEFAULT_HOST,
         timeout: int = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_BACKOFF,
     ) -> None:
         super().__init__(model)
         self.host = host.rstrip("/")
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
 
     def generate(self, prompt: str, *, system: str | None = None) -> str:
         self._last_usage = None
@@ -54,15 +58,13 @@ class OllamaProvider(BaseLLMProvider):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        started = time.perf_counter()
-        try:
-            with request.urlopen(req, timeout=self.timeout) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except (error.URLError, TimeoutError, OSError) as exc:
-            raise LLMError(f"Ollama request failed: {exc}") from exc
-        except json.JSONDecodeError as exc:
-            raise LLMError(f"Ollama returned invalid JSON envelope: {exc}") from exc
-        latency_ms = (time.perf_counter() - started) * 1000
+        body, latency_ms = request_json(
+            req,
+            label="Ollama",
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            backoff=self.retry_backoff,
+        )
 
         response = body.get("response")
         if not isinstance(response, str):

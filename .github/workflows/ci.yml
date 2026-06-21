@@ -6,6 +6,34 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package with dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      # Enforced gate: linting must pass. Formatting is intentionally not gated
+      # yet (run `ruff format` locally); see pyproject.toml [tool.ruff].
+      - name: Ruff lint
+        run: ruff check .
+
+      # Advisory while the existing type-annotation findings are burned down;
+      # it reports issues without blocking the build. Promote to a gate once the
+      # baseline is clean.
+      - name: Mypy (advisory)
+        run: mypy || true
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -27,8 +55,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run tests with coverage
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage report
+        if: always() && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
 
   benchmark:
     runs-on: ubuntu-latest

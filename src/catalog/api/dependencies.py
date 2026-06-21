@@ -8,8 +8,9 @@ it; the schema is ensured once at startup.
 
 from __future__ import annotations
 
+import hmac
 import sqlite3
-from typing import Iterator
+from collections.abc import Iterator
 
 from fastapi import Depends, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -69,5 +70,7 @@ def require_api_key(
             api_key_env=settings.api_key_env,
         )
     token = credentials.credentials.strip() if credentials else ""
-    if token != expected:
+    # Constant-time comparison so a rejected request cannot leak how many leading
+    # characters of the key were correct via response timing.
+    if not hmac.compare_digest(token, expected):
         raise unauthorized("Missing or invalid API key.")

@@ -7,7 +7,8 @@ workflow, status preservation across re-runs, and graph export.
 """
 
 from catalog.db import connect, init_db
-from catalog.knowledge import analytics, repository as repo
+from catalog.knowledge import analytics
+from catalog.knowledge import repository as repo
 from catalog.knowledge.export import build_edges, build_nodes, export_graph_json
 from catalog.knowledge.models import ReviewState
 from catalog.knowledge.service import consolidate, review_object, review_relationship

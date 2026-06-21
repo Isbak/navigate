@@ -9,7 +9,6 @@ quality, and alert numbers current.
 from __future__ import annotations
 
 import argparse
-import json
 
 from ..db import connect, init_db
 from . import dashboard as dashboard_mod
@@ -18,7 +17,7 @@ from . import export as export_mod
 from . import orphans as orphan_mod
 from . import repository as repo
 from .config import load_governance_config
-from .models import FreshnessState, OPEN_REVIEW_STATES
+from .models import OPEN_REVIEW_STATES, FreshnessState
 from .ownership import assign_owner
 from .service import (
     approve_object,
@@ -346,17 +345,17 @@ def _cmd_export(args) -> None:
     with connect(args.db) as conn:
         paths = export_mod.export_governance(conn, config, args.out)
     console.print("[bold]Governance reports written[/bold]:")
-    for name, path in paths.items():
+    for path in paths.values():
         console.print(f"  {path}")
 
 
 def _cmd_ingest(args) -> None:
-    from . import ingestion
     from ..extraction import extract_all
     from ..knowledge.service import consolidate
     from ..links import discover_links, load_link_config
     from ..rdf.export import export_rdf
     from ..scanner import scan
+    from . import ingestion
 
     console = _console()
     config = _config(args)

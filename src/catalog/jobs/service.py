@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..db import connect, init_db
@@ -39,7 +39,7 @@ class JobContext:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # -- individual job handlers ---------------------------------------------------
@@ -52,7 +52,7 @@ def _run_scan(ctx: JobContext, artifact_id: str | None) -> dict:
 
 
 def _run_extract(ctx: JobContext, artifact_id: str | None) -> dict:
-    from ..extraction import extract_all, extract_to_cache, _artifact_from_row
+    from ..extraction import _artifact_from_row, extract_all, extract_to_cache
 
     if artifact_id is None:
         return extract_all(ctx.db_path, ctx.cache_dir)

@@ -10,9 +10,9 @@ missing ledger simply records nothing, keeping existing tests green.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Iterable
 
 from . import repository
 from .pricing import PricingTable, compute_cost, load_pricing
@@ -20,7 +20,7 @@ from .usage import Usage
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class UsageLedger:

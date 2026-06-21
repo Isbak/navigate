@@ -165,9 +165,9 @@ def _render_proof(args) -> None:
     evidenced backs the requirement - never a fabricated conclusion.
     """
 
-    from ..compliance.service import prove
-
     from rich.console import Console
+
+    from ..compliance.service import prove
 
     console = Console(width=120, highlight=False)
     result = prove(args.db, args.question)

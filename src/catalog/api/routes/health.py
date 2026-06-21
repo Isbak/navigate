@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from importlib.metadata import PackageNotFoundError, version as pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 
 from fastapi import APIRouter, Depends
 
 from ...db import latest_scan_run
-from ...links import repository as link_repo
 from ...knowledge import repository as know_repo
-from ..dependencies import get_db, get_settings
+from ...links import repository as link_repo
 from ..config import ApiSettings
+from ..dependencies import get_db, get_settings
 from ..schemas import HealthResponse, StatsResponse
 
 router = APIRouter(tags=["health"])

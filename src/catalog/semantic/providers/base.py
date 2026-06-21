@@ -38,7 +38,7 @@ class BaseLLMProvider(ABC):
         if not model:
             raise ValueError("A model name is required")
         self._model = model
-        self._last_usage: "Usage | None" = None
+        self._last_usage: Usage | None = None
 
     @property
     def model(self) -> str:
@@ -47,7 +47,7 @@ class BaseLLMProvider(ABC):
         return self._model
 
     @property
-    def last_usage(self) -> "Usage | None":
+    def last_usage(self) -> Usage | None:
         """Token usage from the most recent successful :meth:`generate`, or None.
 
         Providers that cannot report usage - and stub providers in tests - leave

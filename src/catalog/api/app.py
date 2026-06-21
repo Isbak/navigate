@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -22,8 +22,8 @@ from ..db import init_db
 from .config import ApiSettings, load_api_config
 from .dependencies import require_api_key
 from .errors import ApiError
-from .schemas import ErrorResponse
 from .routes import ROUTERS
+from .schemas import ErrorResponse
 
 API_PREFIX = "/api"
 

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from catalog.compliance.importer import import_standard, load_equations
 from catalog.compliance import repository as comp_repo
+from catalog.compliance.importer import import_standard, load_equations
 from catalog.db import connect
 from catalog.knowledge.ids import equation_display_name, object_id
-from catalog.knowledge.service import consolidate, review_object
 from catalog.knowledge.models import ReviewState
-
+from catalog.knowledge.service import consolidate, review_object
 
 _YAML = """
 standard:

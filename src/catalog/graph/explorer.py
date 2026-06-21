@@ -20,8 +20,8 @@ package does not pay for it; Rich is imported lazily inside :func:`run_explorer`
 
 from __future__ import annotations
 
-from .client import GraphClient
 from . import network
+from .client import GraphClient
 
 
 def run_explorer(client: GraphClient, *, input_fn=input) -> None:

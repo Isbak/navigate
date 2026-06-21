@@ -17,11 +17,9 @@ from catalog.graphrag.assistant import GraphRAGAssistant
 from catalog.graphrag.confidence import confidence_band, score_confidence
 from catalog.graphrag.context import build_context
 from catalog.graphrag.intent import ReasoningType, analyze_intent
-from catalog.graphrag.memory import ConversationMemory
 from catalog.graphrag.prompts import NO_EVIDENCE_RESPONSE
 from catalog.graphrag.retrieval import GraphRetriever
 from catalog.semantic.providers.base import BaseLLMProvider, LLMError
-
 
 KNOWN_LABELS = [
     "Release Governance",

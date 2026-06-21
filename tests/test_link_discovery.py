@@ -2,8 +2,8 @@ import json
 
 from catalog.db import connect
 from catalog.links import discover_links
-from catalog.links.config import LinkConfig
 from catalog.links import repository as repo
+from catalog.links.config import LinkConfig
 
 
 def _write_cache(cache_dir, artifact_id, raw_links):

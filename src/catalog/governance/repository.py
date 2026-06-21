@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import sqlite3
 
-from .models import ReviewWorkflowState
-
 # -- object metrics read from the consolidation tables ------------------------
 
 

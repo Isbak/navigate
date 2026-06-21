@@ -40,7 +40,7 @@ def ask(
     try:
         provider = build_provider(config)
     except LLMError as exc:
-        raise not_implemented(_NOT_IMPLEMENTED, reason=str(exc))
+        raise not_implemented(_NOT_IMPLEMENTED, reason=str(exc)) from exc
 
     client = GraphClient.from_sqlite(conn, queries_dir=settings.queries_dir)
     assistant = GraphRAGAssistant(client, provider, depth=max(1, payload.depth))

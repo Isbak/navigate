@@ -1358,6 +1358,32 @@ Keys are never written to the image or committed (`.env` is git-ignored). For a
 one-off run you can pass one directly:
 `ANTHROPIC_API_KEY=sk-ant-... docker compose run -e ANTHROPIC_API_KEY api`.
 
+## MCP grounding server
+
+The catalog can also be consumed by an **agent** rather than a person. `catalog mcp`
+exposes the approved knowledge graph and the GraphRAG assistant as
+[Model Context Protocol](https://modelcontextprotocol.io) tools over stdio, so an
+MCP client (Claude Code, Claude Desktop, …) can ground its reasoning in cited,
+confidence-scored knowledge instead of free-associating. Like the REST API, it is
+a thin adapter — every tool delegates to the same services the CLI uses, with no
+new business logic or SQL.
+
+```bash
+pip install -e '.[mcp]'                        # optional extra; base install unchanged
+catalog mcp --db data/catalog.sqlite           # stdio server
+catalog mcp --no-graphrag                        # graph-only, fully offline (no ask)
+```
+
+It publishes seven tools: `search_knowledge`, `get_object`, `neighbors`, `impact`,
+`find_path`, and `evidence_for` (deterministic, offline, no API key), plus the
+LLM-backed `ask` (graph-first, cited answers; degrades gracefully to
+`{"available": false}` when no provider/key is configured). `ask` usage is priced
+into `catalog cost-report` like the CLI and API paths. The surface is **read +
+Q&A only** — no write/approve tools — so approval stays a human action.
+
+See [`docs/mcp.md`](docs/mcp.md) for the tool catalogue and a sample MCP client
+config block.
+
 ## Future extension points
 
 The consolidated knowledge objects are designed to support later phases without

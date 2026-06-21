@@ -33,6 +33,7 @@ from .knowledge.service import (
 from .links import discover_links, load_link_config
 from .links import repository as link_repo
 from .maintenance import purge_path
+from .mcp.cli import add_mcp_parser, run_mcp
 from .rdf.config import load_jena_config
 from .rdf.export import DEFAULT_OUT_DIR as RDF_OUT_DIR
 from .rdf.export import FORMATS as RDF_FORMATS
@@ -269,6 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- compliance & standards --
     add_compliance_parser(sub)
+
+    # -- MCP grounding server --
+    add_mcp_parser(sub)
 
     # -- pipeline benchmark suite --
     bench = sub.add_parser(
@@ -1283,6 +1287,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         run_governance(args)
     elif args.command == "compliance":
         run_compliance(args)
+    elif args.command == "mcp":
+        run_mcp(args)
     elif args.command in {"ask", "explain", "impact", "compare", "path-reason"}:
         run_graphrag(args)
     elif args.command == "benchmark":

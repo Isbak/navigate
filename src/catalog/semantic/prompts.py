@@ -51,11 +51,13 @@ _EXAMPLE = {
          "supporting_text": "..."},
     ],
     "decisions": [
-        {"decision_text": "Adopt the Launchpad/Mission operating model",
+        {"title": "Adopt Launchpad operating model",
+         "decision_text": "Adopt the Launchpad/Mission operating model",
          "confidence": 0.84, "supporting_text": "We will move to a Launchpad model"},
     ],
     "risks": [
-        {"risk_description": "Unclear ownership between teams", "confidence": 0.7,
+        {"title": "Unclear release ownership",
+         "risk_description": "Unclear ownership between teams", "confidence": 0.7,
          "supporting_text": "ownership of the release process is undefined"},
     ],
     "relationships": [
@@ -130,11 +132,16 @@ these keys:
 - "entities": array of {{"entity_type": str, "name": str, "confidence":
   0.0-1.0, "supporting_text": str}}. entity_type is one of
   [{_bullet(ENTITY_TYPES)}].
-- "decisions": array of {{"decision_text": str, "confidence": 0.0-1.0,
-  "supporting_text": str}}. Decisions the document appears to make. Do NOT mark
+- "decisions": array of {{"title": str, "decision_text": str, "confidence":
+  0.0-1.0, "supporting_text": str}}. Decisions the document appears to make.
+  "title" is a short (<= 8 words) canonical name for the decision so the same
+  decision phrased differently across documents collapses to one (e.g. "Adopt
+  Launchpad operating model"); "decision_text" is the full decision. Do NOT mark
   anything as approved; these are candidates only.
-- "risks": array of {{"risk_description": str, "confidence": 0.0-1.0,
-  "supporting_text": str}}.
+- "risks": array of {{"title": str, "risk_description": str, "confidence":
+  0.0-1.0, "supporting_text": str}}. "title" is a short (<= 8 words) canonical
+  name for the risk (e.g. "Unclear release ownership"); "risk_description" is the
+  full risk.
 - "relationships": array of {{"subject": str, "predicate": str, "object": str,
   "confidence": 0.0-1.0, "supporting_text": str}}. predicate is one of
   [{_bullet(RELATIONSHIP_PREDICATES)}].
@@ -165,6 +172,9 @@ these keys:
 Rules:
 - Use the controlled vocabularies above. If document_type does not fit, use
   "Other".
+- For each entity choose the single most specific entity_type, and do NOT emit
+  the same name under more than one type. Refer to a given thing by one
+  consistent name throughout your output so it resolves to a single object.
 - Every array may be empty. Prefer fewer, higher-confidence items.
 - "supporting_text" must be a short quote copied from the document, or "".
 - Return ONLY the JSON object, no markdown fences, no commentary.

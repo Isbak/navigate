@@ -4,6 +4,7 @@ import pytest
 
 from catalog.semantic.parser import (
     ParseError,
+    merge_classification_results,
     parse_classification_response,
     validate_confidence,
 )
@@ -112,6 +113,64 @@ def test_missing_arrays_become_empty():
     assert result.domains == []
     assert result.decisions == []
     assert result.relationships == []
+
+
+def test_decision_and_risk_titles_parsed():
+    raw = json.dumps(
+        {
+            "document_type": "Governance",
+            "decisions": [
+                {"title": "Adopt Launchpad model",
+                 "decision_text": "We will adopt the Launchpad operating model",
+                 "confidence": 0.8},
+            ],
+            "risks": [
+                {"title": "Unclear ownership",
+                 "risk_description": "Ownership between teams is undefined",
+                 "confidence": 0.6},
+            ],
+        }
+    )
+    result = parse_classification_response(raw)
+    assert result.decisions[0].title == "Adopt Launchpad model"
+    assert result.decisions[0].decision_text.startswith("We will adopt")
+    assert result.risks[0].title == "Unclear ownership"
+
+
+def test_missing_decision_title_is_derived():
+    # When the model omits a title, a short label is derived from the full text
+    # so the decision still has a stable, mergeable key (not a unique sentence).
+    raw = json.dumps(
+        {
+            "document_type": "Report",
+            "decisions": [
+                {"decision_text": "Adopt the Launchpad model; migrate by Q3 2026",
+                 "confidence": 0.7},
+            ],
+        }
+    )
+    result = parse_classification_response(raw)
+    title = result.decisions[0].title
+    assert title == "Adopt the Launchpad model"  # leading clause, capped
+    assert len(title.split()) <= 8
+
+
+def test_merge_dedupes_decisions_by_title():
+    # Two chunks propose the same decision with differently-worded full text but
+    # the same title; the merge keeps a single decision keyed on the title.
+    a = parse_classification_response(json.dumps(
+        {"document_type": "Report", "decisions": [
+            {"title": "Adopt Launchpad", "decision_text": "Adopt Launchpad now",
+             "confidence": 0.6}]}
+    ))
+    b = parse_classification_response(json.dumps(
+        {"document_type": "Report", "decisions": [
+            {"title": "Adopt Launchpad", "decision_text": "We adopt Launchpad",
+             "confidence": 0.9}]}
+    ))
+    merged = merge_classification_results([a, b])
+    assert len(merged.decisions) == 1
+    assert merged.decisions[0].confidence == 0.9  # highest-confidence kept
 
 
 def test_empty_response_raises():

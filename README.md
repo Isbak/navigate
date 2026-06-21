@@ -531,7 +531,17 @@ strength:
 
 Every cluster records its **merge confidence** (the cohesion that held it
 together). Pairs that are similar but below the auto-merge threshold are **not**
-merged; they surface as *duplicate candidates* for a human to review.
+merged; they surface as *duplicate candidates* for a human to review. Objects
+that share a name but were typed differently across documents (e.g. a `Concept`
+and a `Capability` both called "Release Governance") are surfaced separately by
+`review-candidates` as *same name, different type* — never auto-merged, since
+picking the right type is a review decision.
+
+Low-confidence, one-off proposals are dropped before clustering by a
+configurable **noise floor** (`min_mention_confidence`, default `0.3`, overridable
+with `consolidate --min-confidence`), so the long tail of weak mentions does not
+each become its own object. See [`docs/classification-audit.md`](docs/classification-audit.md)
+for the full audit of classification and knowledge discovery.
 
 ### Evidence, relationships, and review
 
@@ -564,6 +574,7 @@ catalog consolidate                # build knowledge objects from semantic data
 catalog consolidate --force        # rebuild, discarding prior review decisions
 catalog consolidate --use-llm      # use the LLM for borderline merge suggestions
 catalog consolidate --all-sources  # ignore the source-folder scope (legacy)
+catalog consolidate --min-confidence 0.5  # raise the noise floor (default 0.3)
 
 catalog clean-source --path PATH   # permanently purge all material for a file/folder
 catalog clean-source --path PATH --no-reconsolidate   # purge without rebuilding

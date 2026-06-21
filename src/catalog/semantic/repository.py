@@ -138,12 +138,12 @@ def persist_classification(
     conn.executemany(
         """
         INSERT INTO candidate_decisions(
-            artifact_id, decision_text, confidence, supporting_text,
+            artifact_id, decision_text, title, confidence, supporting_text,
             knowledge_type, review_status, model, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            (artifact_id, d.decision_text, d.confidence, d.supporting_text,
+            (artifact_id, d.decision_text, d.title, d.confidence, d.supporting_text,
              hyp, new, model, created_at)
             for d in result.decisions
         ],
@@ -152,12 +152,12 @@ def persist_classification(
     conn.executemany(
         """
         INSERT INTO candidate_risks(
-            artifact_id, risk_description, confidence, supporting_text,
+            artifact_id, risk_description, title, confidence, supporting_text,
             knowledge_type, review_status, model, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            (artifact_id, r.risk_description, r.confidence, r.supporting_text,
+            (artifact_id, r.risk_description, r.title, r.confidence, r.supporting_text,
              hyp, new, model, created_at)
             for r in result.risks
         ],

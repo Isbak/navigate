@@ -190,6 +190,25 @@ def _parse_entities(value: object) -> list[CandidateEntity]:
     return out
 
 
+_CLAUSE_SPLIT_RE = re.compile(r"[.;:\n]")
+
+
+def _derive_title(text: str, max_words: int = 8) -> str:
+    """Short, mergeable label for a decision/risk when the model gives none.
+
+    Takes the leading clause (up to the first sentence/clause break) and caps it
+    to ``max_words`` words, so a long unique sentence still yields a stable key
+    that can collapse with the same decision worded differently elsewhere -
+    rather than every sentence becoming its own knowledge object.
+    """
+
+    snippet = _CLAUSE_SPLIT_RE.split(text.strip(), maxsplit=1)[0].strip()
+    words = snippet.split()
+    if len(words) > max_words:
+        snippet = " ".join(words[:max_words])
+    return snippet
+
+
 def _parse_decisions(value: object) -> list[CandidateDecision]:
     out: list[CandidateDecision] = []
     for item in _as_list(value):
@@ -197,13 +216,19 @@ def _parse_decisions(value: object) -> list[CandidateDecision]:
             text = _text(item.get("decision_text") or item.get("decision") or item.get("text"))
             conf = validate_confidence(item.get("confidence"))
             quote = _text(item.get("supporting_text"))
+            title = _text(item.get("title"))
         elif isinstance(item, str):
-            text, conf, quote = item.strip(), 0.5, ""
+            text, conf, quote, title = item.strip(), 0.5, "", ""
         else:
             continue
         if text:
             out.append(
-                CandidateDecision(decision_text=text, confidence=conf, supporting_text=quote)
+                CandidateDecision(
+                    decision_text=text,
+                    confidence=conf,
+                    supporting_text=quote,
+                    title=title or _derive_title(text),
+                )
             )
     return out
 
@@ -215,13 +240,19 @@ def _parse_risks(value: object) -> list[CandidateRisk]:
             text = _text(item.get("risk_description") or item.get("risk") or item.get("text"))
             conf = validate_confidence(item.get("confidence"))
             quote = _text(item.get("supporting_text"))
+            title = _text(item.get("title"))
         elif isinstance(item, str):
-            text, conf, quote = item.strip(), 0.5, ""
+            text, conf, quote, title = item.strip(), 0.5, "", ""
         else:
             continue
         if text:
             out.append(
-                CandidateRisk(risk_description=text, confidence=conf, supporting_text=quote)
+                CandidateRisk(
+                    risk_description=text,
+                    confidence=conf,
+                    supporting_text=quote,
+                    title=title or _derive_title(text),
+                )
             )
     return out
 
@@ -402,8 +433,10 @@ def merge_classification_results(
         domains=_dedupe(domains, lambda d: d.domain.lower()),
         entities=_dedupe(entities, lambda e: (e.entity_type, e.name.lower())),
         capabilities=_dedupe(capabilities, lambda c: c.name.lower()),
-        decisions=_dedupe(decisions, lambda d: d.decision_text.lower()),
-        risks=_dedupe(risks, lambda r: r.risk_description.lower()),
+        decisions=_dedupe(
+            decisions, lambda d: (d.title or d.decision_text).lower()
+        ),
+        risks=_dedupe(risks, lambda r: (r.title or r.risk_description).lower()),
         relationships=_dedupe(
             relationships, lambda x: (x.subject.lower(), x.predicate, x.object.lower())
         ),

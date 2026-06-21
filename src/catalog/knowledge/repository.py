@@ -20,12 +20,18 @@ import sqlite3
 from .ids import equation_display_name, requirement_display_name
 from .models import RawMention, ReviewState
 
-# (semantic table, object_type, name column) tuples that feed consolidation.
-# candidate_entities is handled separately because its type is a column.
+# (semantic table, object_type, name expression) tuples that feed consolidation.
+# The name expression is the cluster key: for decisions/risks it is the short
+# ``title`` (falling back to the full sentence for rows that predate it), so the
+# same decision/risk worded differently across documents collapses into one
+# object instead of one node per sentence. candidate_entities is handled
+# separately because its type lives in a column.
 _CANDIDATE_SOURCES = (
     ("candidate_capabilities", "Capability", "name"),
-    ("candidate_decisions", "Decision", "decision_text"),
-    ("candidate_risks", "Risk", "risk_description"),
+    ("candidate_decisions", "Decision",
+     "COALESCE(NULLIF(TRIM(title), ''), decision_text)"),
+    ("candidate_risks", "Risk",
+     "COALESCE(NULLIF(TRIM(title), ''), risk_description)"),
 )
 
 

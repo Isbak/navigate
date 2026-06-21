@@ -34,6 +34,11 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.10",
 ]
+# The MCP grounding server (`catalog mcp`). Optional so the base install is
+# unchanged; imported lazily in catalog.mcp.server.
+mcp = [
+  "mcp>=1.2",
+]
 
 [project.scripts]
 catalog = "catalog.cli:main"

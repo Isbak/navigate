@@ -67,6 +67,15 @@ catalog classify --artifact-id doc_abc123 # one document
 catalog classify --force                  # reclassify everything
 ```
 
+Domains are discovered freely from each document, then de-noised so one dense
+standard does not explode into a dozen overlapping domains. `config/domains.yml`
+sets a confidence floor (`min_confidence`), fuzzy-merges near-duplicate names
+(`merge_threshold`), and optionally maps discovered names onto a curated
+`canonical` taxonomy (`map_threshold`). Set `allow_unlisted: false` to keep only
+domains in the taxonomy. A missing file falls back to floor-only defaults.
+Canonicalization runs at classify time, so edit the file and re-run
+`catalog classify --force` to re-process existing documents.
+
 Then review the discovery analytics without re-reading every document:
 
 ```bash

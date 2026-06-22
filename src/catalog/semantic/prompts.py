@@ -125,7 +125,9 @@ these keys:
 - "long_summary": <= 500 words.
 - "domains": array of {{"domain": str, "confidence": 0.0-1.0}}. A domain is a
   business or technology area such as "Test & Release", "Architecture", "SAP",
-  "Data", "Finance", "HR". Include every domain the document touches.
+  "Data", "Finance", "HR". List only the 1-4 domains the document is genuinely
+  about; omit areas it merely mentions in passing. Prefer one broad domain over
+  several overlapping near-synonyms.
 - "capabilities": array of {{"name": str, "confidence": 0.0-1.0,
   "supporting_text": str}}. Business capabilities discussed, e.g. "Release
   Management", "Change Management", "Incident Management".

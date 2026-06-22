@@ -1,0 +1,22 @@
+# Domain canonicalization.
+#
+# Domains are still *discovered* from documents by the semantic classifier; this
+# file only cleans up the result so a single document does not explode into a
+# dozen near-duplicate domains. It (a) drops low-confidence domains, (b) optionally
+# maps discovered names onto preferred canonical names, and (c) fuzzy-merges the
+# leftovers among themselves. A missing file falls back to floor-only defaults.
+
+min_confidence: 0.6   # drop domains the model was less than this sure about
+merge_threshold: 0.88 # fuzzy-merge two discovered names at/above this similarity
+map_threshold: 0.90   # map a discovered name onto a canonical name at/above this
+allow_unlisted: true  # keep domains not in the taxonomy below (emergent-friendly)
+
+# Optional curated taxonomy: each canonical name plus the aliases/synonyms that
+# should collapse into it. Leave the list empty to rely purely on fuzzy merging.
+canonical:
+  - name: "Structural Engineering"
+    aliases: ["Steel Construction", "Steel Design", "Structural Design"]
+  - name: "Standards & Codes"
+    aliases: ["Standards & Compliance", "Standards & Regulations", "Codes & Standards"]
+  - name: "Construction"
+    aliases: ["Construction Standards", "Building Construction"]

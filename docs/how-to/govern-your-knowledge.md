@@ -72,8 +72,12 @@ catalog governance ingest [--schedule daily|weekly|manual] [--force]
 
 Rules live in `config/governance.yml` — freshness thresholds, quality weights,
 drift sensitivity, and the ingestion cadence. Every value falls back to a default.
-Domains are **not** configured: they are discovered from documents' semantic
-classifications.
+Domains are **discovered** from documents' semantic classifications, not
+authored by hand. They are then cleaned up by `config/domains.yml` — a
+confidence floor, a fuzzy merge of near-duplicate names, and an optional
+canonical taxonomy — so a single dense document does not surface a dozen
+overlapping domains. See
+[Build a knowledge graph](build-a-knowledge-graph.md#2-classify-documents).
 
 ## Related
 

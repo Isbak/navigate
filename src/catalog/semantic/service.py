@@ -18,6 +18,7 @@ changed (the ``source_hash`` differs), its classification is missing, or
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -31,6 +32,7 @@ from ..cost import NullUsageLedger, PricingTable, UsageLedger, load_pricing
 from ..db import connect, init_db
 from . import repository as repo
 from .code_prompts import build_code_classification_prompt
+from .domains import DomainTaxonomy, canonicalize_domains, load_domain_taxonomy
 from .parser import (
     ParseError,
     merge_classification_results,
@@ -89,18 +91,14 @@ def _normalize_ids(artifact_id: str | list[str] | None) -> list[str] | None:
     return list(artifact_id)
 
 
-def _cache_artifact_dirs(
-    cache_dir: Path, artifact_ids: list[str] | None
-) -> list[Path]:
+def _cache_artifact_dirs(cache_dir: Path, artifact_ids: list[str] | None) -> list[Path]:
     if artifact_ids is not None:
         return [
             cache_dir / aid
             for aid in artifact_ids
             if (cache_dir / aid / EXTRACTED_FILENAME).exists()
         ]
-    return sorted(
-        p.parent for p in cache_dir.glob(f"*/{EXTRACTED_FILENAME}") if p.is_file()
-    )
+    return sorted(p.parent for p in cache_dir.glob(f"*/{EXTRACTED_FILENAME}") if p.is_file())
 
 
 def _active_artifact_ids(conn) -> set[str]:
@@ -174,6 +172,7 @@ def _classify_one(
     now: str,
     stats: ClassifyStats,
     ledger,
+    taxonomy: DomainTaxonomy,
 ) -> None:
     artifact_id = artifact_dir.name
     text = (artifact_dir / EXTRACTED_FILENAME).read_text(encoding="utf-8")
@@ -193,9 +192,7 @@ def _classify_one(
     # boundaries and classify with the code schema/prompt. Everything else keeps
     # the document path byte-for-byte.
     language = metadata.get("language")
-    prompt_builder = (
-        build_code_classification_prompt if language else build_classification_prompt
-    )
+    prompt_builder = build_code_classification_prompt if language else build_classification_prompt
 
     # Adaptive routing: a cheap, deterministic complexity read picks the model
     # (and chunk budget) for this document before any token is spent.
@@ -225,9 +222,7 @@ def _classify_one(
             result.type_confidence,
         )
         provider = router.deep_provider
-        deep_chunks = select_chunks(text, language, max_input_chars, chunk_overlap)[
-            :max_chunks
-        ]
+        deep_chunks = select_chunks(text, language, max_input_chars, chunk_overlap)[:max_chunks]
         result = _run_chunks(
             provider,
             metadata,
@@ -244,9 +239,13 @@ def _classify_one(
     # entities and relationships are added (and beat lower-confidence duplicates).
     if language:
         structure = extract_structure(text, language)
-        result = merge_classification_results(
-            [result, structure_to_result(structure, metadata)]
-        )
+        result = merge_classification_results([result, structure_to_result(structure, metadata)])
+
+    # De-noise the discovered domains (confidence floor, canonical mapping, and
+    # fuzzy-merge of near-duplicates) so one dense document does not surface a
+    # dozen overlapping domains. Applied here, the single chokepoint covers both
+    # the single-chunk and multi-chunk paths.
+    result = dataclasses.replace(result, domains=canonicalize_domains(result.domains, taxonomy))
 
     repo.delete_for_artifact(conn, artifact_id)
     repo.persist_classification(
@@ -284,6 +283,7 @@ def classify_documents(
     provider_name: str | None = None,
     track_cost: bool = True,
     router: ProviderRouter | None = None,
+    taxonomy: DomainTaxonomy | None = None,
 ) -> ClassifyStats:
     """Classify cached documents with ``provider`` and persist the results.
 
@@ -305,6 +305,8 @@ def classify_documents(
 
     if router is None:
         router = single_provider_router(provider, max_chunks=max_chunks)
+    if taxonomy is None:
+        taxonomy = load_domain_taxonomy()
 
     artifact_ids = _normalize_ids(artifact_id)
     started_at = _utc_now()
@@ -315,9 +317,7 @@ def classify_documents(
             ledger = UsageLedger(conn, table, provider_name=provider_name)
         else:
             ledger = NullUsageLedger()
-        artifact_dirs = _artifact_dirs(
-            cache_path, artifact_ids, _active_artifact_ids(conn)
-        )
+        artifact_dirs = _artifact_dirs(cache_path, artifact_ids, _active_artifact_ids(conn))
         total_artifacts = len(artifact_dirs)
         for index, artifact_dir in enumerate(artifact_dirs, start=1):
             try:
@@ -332,6 +332,7 @@ def classify_documents(
                     now=started_at,
                     stats=stats,
                     ledger=ledger,
+                    taxonomy=taxonomy,
                 )
                 conn.commit()
             except (LLMError, ParseError) as exc:

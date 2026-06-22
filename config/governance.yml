@@ -6,7 +6,10 @@
 # governance runs out of the box.
 #
 # Domains are not configured here: they are discovered from the documents'
-# semantic classifications, like every other object in the catalog.
+# semantic classifications, like every other object in the catalog. They are
+# only de-duplicated and (optionally) mapped onto canonical names afterwards via
+# ``config/domains.yml`` (a confidence floor, a fuzzy merge, and an optional
+# taxonomy); discovery itself still comes from the data.
 
 freshness:
   # Days with no fresh evidence before an object ages out of each state.

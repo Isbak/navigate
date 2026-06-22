@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -118,31 +119,64 @@ def _classify_and_normalize(raw_url: str, config: LinkConfig) -> _Resolved:
     )
 
 
-def _process_artifact(
+@dataclass(frozen=True)
+class _ResolvedLink:
+    raw_url: str
+    normalized_url: str
+    anchor_text: str | None
+    target_system: str
+    target_type: str
+    link_kind: str
+
+
+def _resolve_artifact_links(
+    artifact_dir: Path, config: LinkConfig
+) -> tuple[str, list[_ResolvedLink]]:
+    """Read and classify one artifact's links - pure compute, no DB access.
+
+    Reading ``links.json`` plus URL normalization/classification is the only
+    CPU/IO work in link discovery, and it touches no shared state, so it is safe
+    to run concurrently. The returned records are persisted on a single thread.
+    """
+
+    artifact_id = artifact_dir.name
+    raw_links = _read_raw_links(artifact_dir / LINKS_FILENAME)
+    resolved: list[_ResolvedLink] = []
+    for raw in raw_links:
+        raw_url = raw["raw_url"]
+        r = _classify_and_normalize(raw_url, config)
+        if not r.normalized_url:
+            continue
+        resolved.append(
+            _ResolvedLink(
+                raw_url=raw_url,
+                normalized_url=r.normalized_url,
+                anchor_text=_normalize_anchor(raw.get("anchor_text")),
+                target_system=r.target_system,
+                target_type=r.target_type,
+                link_kind=r.link_kind,
+            )
+        )
+    return artifact_id, resolved
+
+
+def _persist_artifact_links(
     conn,
-    artifact_dir: Path,
-    config: LinkConfig,
+    artifact_id: str,
+    resolved: list[_ResolvedLink],
     seen_at: str,
     stats: LinkScanStats,
 ) -> None:
-    artifact_id = artifact_dir.name
-    raw_links = _read_raw_links(artifact_dir / LINKS_FILENAME)
-
-    for raw in raw_links:
-        raw_url = raw["raw_url"]
-        resolved = _classify_and_normalize(raw_url, config)
-        if not resolved.normalized_url:
-            continue
-        anchor = _normalize_anchor(raw.get("anchor_text"))
+    for link in resolved:
         result = repo.upsert_link(
             conn,
             source_artifact_id=artifact_id,
-            raw_url=raw_url,
-            normalized_url=resolved.normalized_url,
-            anchor_text=anchor,
-            target_system=resolved.target_system,
-            target_type=resolved.target_type,
-            link_kind=resolved.link_kind,
+            raw_url=link.raw_url,
+            normalized_url=link.normalized_url,
+            anchor_text=link.anchor_text,
+            target_system=link.target_system,
+            target_type=link.target_type,
+            link_kind=link.link_kind,
             seen_at=seen_at,
         )
         stats.links_found += 1
@@ -160,12 +194,18 @@ def discover_links(
     cache_dir: str | Path = "cache",
     config: LinkConfig | None = None,
     artifact_id: str | None = None,
+    workers: int = 1,
 ) -> LinkScanStats:
     """Scan cached ``links.json`` files and persist normalized links.
 
     When ``artifact_id`` is given only that artifact's cache is processed;
     otherwise every ``cache/*/links.json`` is read. Returns aggregate stats and
     records a row in ``link_scan_runs``.
+
+    ``workers`` parallelizes the read/normalize/classify step across a thread
+    pool; the SQLite writes stay on this (single) thread to honor SQLite's
+    one-writer rule, so results are independent of worker count. ``workers=1``
+    runs the original serial path.
     """
 
     config = config or LinkConfig.empty()
@@ -177,10 +217,32 @@ def discover_links(
 
     artifact_dirs = _artifact_dirs(cache_path, artifact_id)
 
+    def _resolve(artifact_dir: Path):
+        try:
+            aid, resolved = _resolve_artifact_links(artifact_dir, config)
+            return artifact_dir, aid, resolved, None
+        except Exception as exc:  # noqa: BLE001 - one bad artifact must not abort the run
+            return artifact_dir, artifact_dir.name, [], exc
+
+    # Compute first (parallel), then persist on one thread. pool.map preserves
+    # input order, so persistence order is deterministic regardless of workers.
+    if workers > 1 and len(artifact_dirs) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            resolved_items = list(pool.map(_resolve, artifact_dirs))
+    else:
+        resolved_items = [_resolve(d) for d in artifact_dirs]
+
     with connect(db_path) as conn:
-        for artifact_dir in artifact_dirs:
+        for artifact_dir, aid, resolved, error in resolved_items:
+            if error is not None:
+                LOGGER.error(
+                    "Link discovery failed for %s: %s", artifact_dir, error,
+                    exc_info=error,
+                )
+                stats.errors += 1
+                continue
             try:
-                _process_artifact(conn, artifact_dir, config, started_at, stats)
+                _persist_artifact_links(conn, aid, resolved, started_at, stats)
                 conn.commit()
             except Exception:  # noqa: BLE001 - one bad artifact must not abort the run
                 LOGGER.exception("Link discovery failed for %s", artifact_dir)

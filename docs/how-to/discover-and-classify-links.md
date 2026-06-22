@@ -19,7 +19,13 @@ catalog extract                                  # fast text extraction (default
 catalog extract --mode high-quality              # vision pass for hard PDF pages
 catalog extract --path-glob '**/*standard*.pdf'  # only matching files
 catalog extract --artifact-id doc_abc123         # only these ids (repeatable)
+catalog extract --workers 8                      # extract files in parallel
 ```
+
+Each file is extracted independently, so `--workers N` runs the extraction
+across `N` threads. The default comes from `config/performance.yml`
+(`extract_workers`, `0` = one worker per CPU). Results are identical to a serial
+run — only faster. See `catalog extract --help`.
 
 Extraction has two modes (configured in `config/extraction.yml`, overridable
 with `--mode`):
@@ -36,7 +42,12 @@ with `--mode`):
 ```bash
 catalog discover-links                           # all cached artifacts
 catalog discover-links --artifact-id doc_abc123  # a single artifact
+catalog discover-links --workers 8               # resolve links in parallel
 ```
+
+`--workers N` parallelizes the read/normalize/classify step; the SQLite writes
+stay on one thread, so the result is independent of worker count. The default
+comes from `config/performance.yml` (`link_workers`, `0` = one per CPU).
 
 A run reports a summary it stores in `link_scan_runs`:
 

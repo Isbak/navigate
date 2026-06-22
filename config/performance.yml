@@ -1,0 +1,14 @@
+# Worker-pool sizes for the parallelizable pipeline stages.
+#
+# Each value is the default number of concurrent workers for a stage. A
+# per-command `--workers N` flag overrides the matching value here.
+#
+#   0 = auto (uses the machine's CPU count)
+#
+# `classify` issues blocking LLM calls per document, so it defaults to a small,
+# fixed pool to respect provider rate limits — raise it only if your provider
+# and plan tolerate more concurrency.
+
+extract_workers: 0      # `catalog extract` (per-file text/link extraction)
+link_workers: 0         # `catalog discover-links` (per-artifact URL classify)
+classify_workers: 4     # `catalog classify` (per-document LLM calls)

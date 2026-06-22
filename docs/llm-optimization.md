@@ -82,6 +82,25 @@ deep path (`max_chunks`, default 20), so the long tail of simple documents never
 pays the full per-document chunk allowance, while complex documents keep their
 full budget.
 
+### Latency: concurrent classification
+
+The optimizations above cut *cost*; concurrency cuts *wall-clock time*. Each
+document is classified independently, and the LLM call is network-bound, so
+`catalog classify --workers N` overlaps `N` documents' calls. All database
+writes stay on one thread, so the result is byte-for-byte identical to a serial
+run — only faster. The default lives in `config/performance.yml`:
+
+```yaml
+classify_workers: 4     # concurrent documents; 0 = one worker per CPU
+```
+
+This is *concurrency*, not a quota: every worker still issues real provider
+calls, so set it no higher than your provider's rate limits (requests- and
+tokens-per-minute) comfortably allow. Routing and prompt caching still apply per
+call, and the cost ledger records the same per-chunk usage regardless of worker
+count. `extract` and `discover-links` have their own `extract_workers` /
+`link_workers` knobs in the same file.
+
 ## Configuration
 
 All of this is configured in `config/llm.yml` and ships **enabled** by default:

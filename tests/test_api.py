@@ -597,3 +597,184 @@ def test_approve_confidence_rejects_inverted_interval(client):
         json={"min_confidence": 0.90, "max_confidence": 0.80},
     )
     assert resp.status_code == 400
+
+
+# -- cost / LLM analytics -----------------------------------------------------
+
+
+def _seed_usage(db: str) -> None:
+    """Record a couple of priced LLM calls so the cost endpoints have data."""
+
+    with connect(db) as conn:
+        conn.execute(
+            "INSERT INTO llm_usage(operation, model, artifact_id, input_tokens, "
+            "output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, "
+            "cost_usd, created_at) "
+            "VALUES('classify','claude','doc_a',100,50,150,0,0,0.0021,'t')"
+        )
+        conn.execute(
+            "INSERT INTO llm_usage(operation, model, artifact_id, input_tokens, "
+            "output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, "
+            "cost_usd, created_at) "
+            "VALUES('ask','claude','doc_b',200,80,280,0,0,0.004,'t')"
+        )
+        conn.commit()
+
+
+def test_cost_endpoints(client, seeded_db):
+    _seed_usage(seeded_db)
+
+    summary = client.get("/api/cost/summary")
+    assert summary.status_code == 200
+    body = summary.json()
+    assert body["calls"] == 2
+    assert body["total_tokens"] == 430
+
+    by_op = client.get("/api/cost/by-operation").json()
+    assert {row["operation"] for row in by_op} == {"classify", "ask"}
+
+    by_model = client.get("/api/cost/by-model").json()
+    assert by_model[0]["model"] == "claude"
+
+    per_doc = client.get("/api/cost/per-document", params={"top": 1}).json()
+    assert len(per_doc) == 1
+
+    vs_quality = client.get("/api/cost/vs-quality").json()
+    artifacts = {row["artifact_id"] for row in vs_quality}
+    assert "doc_a" in artifacts
+
+
+# -- graph analytics ----------------------------------------------------------
+
+
+def test_graph_health(client):
+    body = client.get("/api/graph/health").json()
+    assert "objects_without_relationships" in body
+    assert "most_connected" in body
+
+
+def test_graph_metrics(client):
+    body = client.get("/api/graph/metrics", params={"top": 3}).json()
+    assert body["node_count"] >= 1
+    assert "density" in body
+    assert len(body["top"]) <= 3
+
+
+def test_graph_domains(client):
+    body = client.get("/api/graph/domains").json()
+    assert isinstance(body, list) and body
+    assert {"domain", "object_count", "most_central"} <= set(body[0])
+
+
+def test_graph_exports(client):
+    gexf = client.get("/api/graph/export-gexf")
+    assert gexf.status_code == 200
+    assert "gexf" in gexf.text.lower()
+
+    graphml = client.get("/api/graph/export-graphml")
+    assert graphml.status_code == 200
+    assert "graphml" in graphml.text.lower()
+
+
+# -- governance extras --------------------------------------------------------
+
+
+def test_governance_drift_and_owners(client, seeded_db):
+    assert client.get("/api/governance/drift").json() == []
+
+    obj_id = client.get("/api/knowledge-objects").json()["items"][0]["id"]
+    assigned = client.post(
+        f"/api/governance/objects/{obj_id}/assign-owner",
+        json={"owner_type": "Team", "owner_id": "Platform"},
+    )
+    assert assigned.status_code == 200
+
+    owners = client.get("/api/governance/owners").json()
+    assert any(o["object_id"] == obj_id and o["owner_id"] == "Platform" for o in owners)
+
+
+def test_governance_assign_owner_rejects_unknown_type(client):
+    obj_id = client.get("/api/knowledge-objects").json()["items"][0]["id"]
+    resp = client.post(
+        f"/api/governance/objects/{obj_id}/assign-owner",
+        json={"owner_type": "Nonsense", "owner_id": "x"},
+    )
+    assert resp.status_code == 400
+
+
+def test_governance_object_history_and_flag(client):
+    obj_id = client.get("/api/knowledge-objects").json()["items"][0]["id"]
+
+    flagged = client.post(f"/api/governance/objects/{obj_id}/flag")
+    assert flagged.status_code == 200
+    assert flagged.json()["status"] == "NEEDS_ATTENTION"
+
+    history = client.get(f"/api/governance/objects/{obj_id}/history").json()
+    assert history["object_id"] == obj_id
+    assert isinstance(history["changes"], list)
+
+
+def test_governance_history_missing_object(client):
+    assert client.get("/api/governance/objects/missing/history").status_code == 404
+
+
+# -- rdf ----------------------------------------------------------------------
+
+
+def test_rdf_stats(client):
+    body = client.get("/api/rdf/stats").json()
+    assert body["objects"] >= 1
+    assert "knowledge_triples" in body
+
+
+def test_rdf_export_turtle(client):
+    resp = client.get("/api/rdf/export", params={"fmt": "turtle"})
+    assert resp.status_code == 200
+    assert resp.text.strip()
+
+
+def test_rdf_export_rejects_bad_format(client):
+    resp = client.get("/api/rdf/export", params={"fmt": "bogus"})
+    assert resp.status_code == 400
+
+
+def test_rdf_validate_without_export(client):
+    # No rdf-export has run, so there is nothing on disk to validate.
+    assert client.get("/api/rdf/validate").json() == {"files": {}}
+
+
+# -- GraphRAG extension endpoints ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path, payload",
+    [
+        ("/api/ask/explain", {"term": "Release Governance"}),
+        ("/api/ask/impact", {"term": "Release Governance"}),
+        ("/api/ask/compare", {"term_a": "Release Governance", "term_b": "Launchpad Model"}),
+        (
+            "/api/ask/path-reason",
+            {"term_a": "Release Governance", "term_b": "Launchpad Model"},
+        ),
+    ],
+)
+def test_graphrag_modes_not_implemented_by_default(client, path, payload):
+    resp = client.post(path, json=payload)
+    assert resp.status_code == 501
+    assert resp.json()["error"] == "not_implemented"
+
+
+def test_graphrag_explain_with_stub_provider(seeded_db, tmp_path, monkeypatch):
+    from catalog.api.routes import ask as ask_routes
+    from catalog.semantic.providers.base import BaseLLMProvider
+
+    class StubProvider(BaseLLMProvider):
+        def generate(self, prompt, *, system=None):
+            return "Release Governance supports the Launchpad Model [E1]."
+
+    monkeypatch.setattr(ask_routes, "build_provider", lambda _config: StubProvider("stub"))
+    client = TestClient(create_app(_settings(seeded_db, tmp_path, enable_graphrag=True)))
+
+    resp = client.post("/api/ask/explain", json={"term": "Release Governance"})
+    assert resp.status_code == 200
+    assert resp.json()["answer"]

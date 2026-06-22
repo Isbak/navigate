@@ -10,6 +10,7 @@ from . import (
     artifacts,
     ask,
     compliance,
+    cost,
     evidence,
     governance,
     graph,
@@ -17,6 +18,7 @@ from . import (
     jobs,
     knowledge,
     links,
+    rdf,
     relationships,
 )
 
@@ -31,6 +33,8 @@ ROUTERS = (
     compliance.router,
     graph.router,
     ask.router,
+    cost.router,
+    rdf.router,
     jobs.router,
 )
 

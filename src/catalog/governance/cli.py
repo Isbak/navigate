@@ -310,11 +310,7 @@ def _cmd_drift(args) -> None:
     console = _console()
     init_db(args.db)
     with connect(args.db) as conn:
-        rows = conn.execute(
-            "SELECT * FROM knowledge_change_log WHERE change_type = 'drift_detected' "
-            "ORDER BY id DESC LIMIT ?",
-            (args.limit,),
-        ).fetchall()
+        rows = repo.drift_findings(conn, args.limit)
     console.print(f"[bold]Knowledge drift[/bold] ({len(rows)}):")
     if not rows:
         console.print("  (none detected - run: catalog governance scan)")

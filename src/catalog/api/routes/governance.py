@@ -9,22 +9,29 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Query
 
 from ...governance import domains as domain_analysis
+from ...governance import ownership
 from ...governance import repository as gov_repo
+from ...governance import service as gov_service
 from ...governance.config import load_governance_config
 from ...governance.dashboard import build_dashboard
 from ...governance.models import OPEN_REVIEW_STATES, FreshnessState
 from ...governance.orphans import all_orphans
 from ...knowledge import analytics as know_analytics
+from ...knowledge import repository as know_repo
 from .. import serializers
 from ..config import ApiSettings
 from ..dependencies import get_db, get_settings
-from ..errors import not_found
+from ..errors import bad_request, not_found
 from ..pagination import Pagination, pagination_params
 from ..schemas import (
+    ActionResponse,
+    AssignOwnerRequest,
     ChangeLogEntry,
     DomainHealth,
     GovernanceAlert,
     GrowthTrend,
+    ObjectHistory,
+    OwnerAssignment,
     PaginatedResponse,
     QualityItem,
     QualityResponse,
@@ -152,6 +159,84 @@ def growth(
     return GrowthTrend(**know_analytics.growth_trend(conn, interval=interval, limit=limit))
 
 
+@router.get("/drift", response_model=list[ChangeLogEntry])
+def drift(
+    conn: sqlite3.Connection = Depends(get_db),
+    limit: int = Query(20, ge=1, le=500),
+) -> list[ChangeLogEntry]:
+    """Detected knowledge drift (confidence/attribute shifts), newest first."""
+
+    return [serializers.change_entry(r) for r in gov_repo.drift_findings(conn, limit)]
+
+
+@router.get("/owners", response_model=list[OwnerAssignment])
+def owners(conn: sqlite3.Connection = Depends(get_db)) -> list[OwnerAssignment]:
+    """Every object→owner assignment (Team / Person / Domain)."""
+
+    return [serializers.owner_assignment(r) for r in gov_repo.all_owners(conn)]
+
+
+@router.get("/objects/{object_id}/history", response_model=ObjectHistory)
+def object_history(
+    object_id: str,
+    conn: sqlite3.Connection = Depends(get_db),
+) -> ObjectHistory:
+    """Combined audit view: change log, lifecycle state, and current owner."""
+
+    _require_object(conn, object_id)
+    lifecycle = gov_repo.get_lifecycle(conn, object_id)
+    owner = gov_repo.get_owner(conn, object_id)
+    return ObjectHistory(
+        object_id=object_id,
+        changes=[
+            serializers.change_entry(r) for r in gov_repo.changes_for_object(conn, object_id)
+        ],
+        lifecycle=dict(lifecycle) if lifecycle is not None else None,
+        owner=serializers.owner_assignment(owner) if owner is not None else None,
+    )
+
+
+@router.post("/objects/{object_id}/assign-owner", response_model=ActionResponse)
+def assign_owner(
+    object_id: str,
+    request: AssignOwnerRequest,
+    settings: ApiSettings = Depends(get_settings),
+) -> ActionResponse:
+    """Assign an owner (Team / Person / Domain) to an object."""
+
+    try:
+        changed = ownership.assign_owner(
+            settings.db_path,
+            object_id,
+            request.owner_type,
+            request.owner_id,
+            assigned_by="api",
+        )
+    except ValueError as exc:
+        raise bad_request(str(exc), owner_type=request.owner_type) from exc
+    if not changed:
+        raise not_found("Knowledge object not found", object_id=object_id)
+    owner = f"{request.owner_type}:{request.owner_id}"
+    return ActionResponse(
+        id=object_id, status="OWNED", message=f"Object {object_id} owner -> {owner}"
+    )
+
+
+@router.post("/objects/{object_id}/flag", response_model=ActionResponse)
+def flag(
+    object_id: str,
+    settings: ApiSettings = Depends(get_settings),
+) -> ActionResponse:
+    """Flag an object as needing attention without changing its review status."""
+
+    changed = gov_service.flag_object(settings.db_path, object_id, reviewer="api")
+    if not changed:
+        raise not_found("Knowledge object not found", object_id=object_id)
+    return ActionResponse(
+        id=object_id, status="NEEDS_ATTENTION", message=f"Object {object_id} flagged"
+    )
+
+
 @router.get("/quality", response_model=QualityResponse)
 def quality(
     conn: sqlite3.Connection = Depends(get_db),
@@ -170,3 +255,8 @@ def quality(
         for r in rows
     ]
     return QualityResponse(average_quality=gov_repo.average_quality(conn), items=items)
+
+
+def _require_object(conn: sqlite3.Connection, object_id: str) -> None:
+    if know_repo.get_object(conn, object_id) is None:
+        raise not_found("Knowledge object not found", object_id=object_id)

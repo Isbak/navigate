@@ -476,6 +476,136 @@ class ComplianceProofResponse(BaseModel):
     requirement: dict[str, Any] = Field(default_factory=dict)
     assessments: list[ComplianceProofAssessment] = Field(default_factory=list)
 
+# -- cost / LLM usage ---------------------------------------------------------
+
+class CostSummary(BaseModel):
+    """Aggregate LLM token usage and spend across every recorded call."""
+
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    cost_usd: float | None = None
+    unpriced_calls: int
+
+
+class CostByOperation(BaseModel):
+    operation: str | None = None
+    calls: int
+    total_tokens: int
+    cost_usd: float | None = None
+
+
+class CostByModel(BaseModel):
+    model: str | None = None
+    calls: int
+    total_tokens: int
+    cost_usd: float | None = None
+    unpriced_calls: int
+
+
+class CostPerDocument(BaseModel):
+    artifact_id: str | None = None
+    calls: int
+    total_tokens: int
+    cost_usd: float | None = None
+
+
+class CostVsQuality(BaseModel):
+    artifact_id: str | None = None
+    document_type: str | None = None
+    type_confidence: float | None = None
+    calls: int
+    total_tokens: int
+    cost_usd: float | None = None
+
+
+# -- graph analytics ----------------------------------------------------------
+
+class GraphCentralNode(BaseModel):
+    id: str
+    label: str
+    degree: int
+
+
+class GraphDomain(BaseModel):
+    """One object-type "domain" with its size and most-central concepts."""
+
+    domain: str
+    object_count: int
+    relationship_count: int
+    most_central: list[GraphCentralNode] = Field(default_factory=list)
+
+
+# -- governance ownership / drift / history -----------------------------------
+
+class OwnerAssignment(BaseModel):
+    object_id: str
+    owner_type: str
+    owner_id: str
+    assigned_at: str | None = None
+    assigned_by: str | None = None
+
+
+class AssignOwnerRequest(BaseModel):
+    owner_type: str
+    owner_id: str
+
+
+class ObjectHistory(BaseModel):
+    """Combined governance audit view for a single object."""
+
+    object_id: str
+    changes: list[ChangeLogEntry] = Field(default_factory=list)
+    lifecycle: dict[str, Any] | None = None
+    owner: OwnerAssignment | None = None
+
+
+# -- rdf ----------------------------------------------------------------------
+
+class RdfStats(BaseModel):
+    """Counts of what an RDF export would contain (approved data only)."""
+
+    objects: int
+    relationships: int
+    evidence: int
+    knowledge_triples: int
+    relationship_triples: int
+    provenance_triples: int
+
+
+class RdfValidationFile(BaseModel):
+    ok: bool
+    triples: int
+    error: str | None = None
+
+
+class RdfValidation(BaseModel):
+    files: dict[str, RdfValidationFile] = Field(default_factory=dict)
+
+
+# -- ask / GraphRAG extensions ------------------------------------------------
+
+class ExplainRequest(BaseModel):
+    """Single-term GraphRAG request (explain / impact)."""
+
+    term: str
+    depth: int = 2
+    show_context: bool = False
+    show_evidence: bool = True
+
+
+class CompareRequest(BaseModel):
+    """Two-term GraphRAG request (compare / path-reason)."""
+
+    term_a: str
+    term_b: str
+    depth: int = 2
+    show_context: bool = False
+    show_evidence: bool = True
+
 
 __all__ = [
     "PaginatedResponse",
@@ -524,4 +654,19 @@ __all__ = [
     "ComplianceEvidence",
     "ComplianceProofAssessment",
     "ComplianceProofResponse",
+    "CostSummary",
+    "CostByOperation",
+    "CostByModel",
+    "CostPerDocument",
+    "CostVsQuality",
+    "GraphCentralNode",
+    "GraphDomain",
+    "OwnerAssignment",
+    "AssignOwnerRequest",
+    "ObjectHistory",
+    "RdfStats",
+    "RdfValidationFile",
+    "RdfValidation",
+    "ExplainRequest",
+    "CompareRequest",
 ]

@@ -458,6 +458,16 @@ def all_changes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def drift_findings(conn: sqlite3.Connection, limit: int = 20) -> list[sqlite3.Row]:
+    """The most recent drift-detection entries from the change log, newest first."""
+
+    return conn.execute(
+        "SELECT * FROM knowledge_change_log WHERE change_type = 'drift_detected' "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
 def change_feed(
     conn: sqlite3.Connection,
     *,

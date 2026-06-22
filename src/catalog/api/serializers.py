@@ -194,6 +194,80 @@ def graph_edge(item: dict) -> schemas.GraphEdge:
     )
 
 
+def cost_summary(row: Any) -> schemas.CostSummary:
+    return schemas.CostSummary(
+        calls=_get(row, "calls", 0),
+        input_tokens=_get(row, "input_tokens", 0),
+        output_tokens=_get(row, "output_tokens", 0),
+        total_tokens=_get(row, "total_tokens", 0),
+        cache_read_tokens=_get(row, "cache_read_tokens", 0),
+        cache_write_tokens=_get(row, "cache_write_tokens", 0),
+        cost_usd=_get(row, "cost_usd"),
+        unpriced_calls=_get(row, "unpriced_calls", 0),
+    )
+
+
+def cost_by_operation(row: Any) -> schemas.CostByOperation:
+    return schemas.CostByOperation(
+        operation=_get(row, "key"),
+        calls=_get(row, "calls", 0),
+        total_tokens=_get(row, "total_tokens", 0),
+        cost_usd=_get(row, "cost_usd"),
+    )
+
+
+def cost_by_model(row: Any) -> schemas.CostByModel:
+    return schemas.CostByModel(
+        model=_get(row, "key"),
+        calls=_get(row, "calls", 0),
+        total_tokens=_get(row, "total_tokens", 0),
+        cost_usd=_get(row, "cost_usd"),
+        unpriced_calls=_get(row, "unpriced_calls", 0),
+    )
+
+
+def cost_per_document(row: Any) -> schemas.CostPerDocument:
+    return schemas.CostPerDocument(
+        artifact_id=_get(row, "key"),
+        calls=_get(row, "calls", 0),
+        total_tokens=_get(row, "total_tokens", 0),
+        cost_usd=_get(row, "cost_usd"),
+    )
+
+
+def cost_vs_quality(row: Any) -> schemas.CostVsQuality:
+    return schemas.CostVsQuality(
+        artifact_id=_get(row, "key"),
+        document_type=_get(row, "document_type"),
+        type_confidence=_get(row, "type_confidence"),
+        calls=_get(row, "calls", 0),
+        total_tokens=_get(row, "total_tokens", 0),
+        cost_usd=_get(row, "cost_usd"),
+    )
+
+
+def graph_domain(item: dict) -> schemas.GraphDomain:
+    return schemas.GraphDomain(
+        domain=item["domain"],
+        object_count=item["object_count"],
+        relationship_count=item["relationship_count"],
+        most_central=[
+            schemas.GraphCentralNode(id=c["id"], label=c["label"], degree=c["degree"])
+            for c in item.get("most_central", [])
+        ],
+    )
+
+
+def owner_assignment(row: Any) -> schemas.OwnerAssignment:
+    return schemas.OwnerAssignment(
+        object_id=row["object_id"],
+        owner_type=row["owner_type"],
+        owner_id=row["owner_id"],
+        assigned_at=_get(row, "assigned_at"),
+        assigned_by=_get(row, "assigned_by"),
+    )
+
+
 def job(row: Any) -> schemas.Job:
     summary = _get(row, "result_summary")
     if isinstance(summary, str):
@@ -225,5 +299,12 @@ __all__ = [
     "change_entry",
     "graph_node",
     "graph_edge",
+    "graph_domain",
+    "cost_summary",
+    "cost_by_operation",
+    "cost_by_model",
+    "cost_per_document",
+    "cost_vs_quality",
+    "owner_assignment",
     "job",
 ]

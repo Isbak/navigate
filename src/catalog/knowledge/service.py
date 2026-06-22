@@ -30,6 +30,7 @@ from ..db import connect, init_db
 from . import repository as repo
 from .ids import equation_display_name, object_id, requirement_display_name
 from .models import Cluster, ReviewState
+from .references import find_clause_references, mentions_designation
 from .resolution import (
     ResolutionConfig,
     cluster_mentions,
@@ -87,6 +88,9 @@ class ConsolidationStats:
     evidence_created: int = 0
     relationships_created: int = 0
     relationships_unresolved: int = 0
+    relationships_structural: int = 0
+    relationships_crossref: int = 0
+    objects_floating: int = 0
     statuses_preserved: int = 0
     by_object_type: dict[str, int] = field(default_factory=dict)
 
@@ -98,6 +102,9 @@ class ConsolidationStats:
             "evidence_created": self.evidence_created,
             "relationships_created": self.relationships_created,
             "relationships_unresolved": self.relationships_unresolved,
+            "relationships_structural": self.relationships_structural,
+            "relationships_crossref": self.relationships_crossref,
+            "objects_floating": self.objects_floating,
             "statuses_preserved": self.statuses_preserved,
         }
 
@@ -286,6 +293,188 @@ def _add_equation_relationships(
                 _record(req_id, "specifies", eq_id, row)
 
 
+def _linked_pairs(
+    resolved: dict[tuple[str, str, str], _ResolvedRel],
+) -> set[frozenset[str]]:
+    """Unordered endpoint pairs already joined by *some* edge in ``resolved``."""
+
+    return {frozenset((src, tgt)) for src, _pred, tgt in resolved}
+
+
+def _add_resolved_edge(
+    resolved: dict[tuple[str, str, str], _ResolvedRel],
+    *,
+    src: str,
+    predicate: str,
+    tgt: str,
+    confidence: float,
+    quote: str,
+    artifact_id: str,
+) -> bool:
+    """Add (or strengthen) one edge in ``resolved``. Returns True if newly added."""
+
+    key = (src, predicate, tgt)
+    entry = resolved.get(key)
+    is_new = entry is None
+    if entry is None:
+        entry = _ResolvedRel(confidence=confidence, quotes=[])
+        resolved[key] = entry
+    entry.confidence = max(entry.confidence, confidence)
+    quote = (quote or "").strip()
+    if quote and len(entry.quotes) < _EVIDENCE_QUOTES_PER_RELATIONSHIP:
+        entry.quotes.append({"artifact_id": artifact_id, "quote": quote})
+    return is_new
+
+
+def _add_appears_in_relationships(
+    assigned: list[tuple[str, Cluster]],
+    resolved: dict[tuple[str, str, str], _ResolvedRel],
+    stats: ConsolidationStats,
+) -> None:
+    """Connect every object to the Standard(s) it is documented alongside.
+
+    This is the connectivity guarantee. A standard's document yields many objects
+    - requirements, equations, concepts, processes - but only requirements and
+    equations get an implied structural edge to the standard today; everything
+    else floats unless the free-text relationship miner happened to link it. Here
+    each non-Standard object that co-occurs with a Standard in the same artifact
+    gets an ``appears_in`` edge to it, so no object is left an island.
+
+    The edge is skipped when the pair is already joined by a more specific edge
+    (a Requirement is ``mandated_by`` its standard, not merely ``appears_in`` it),
+    so this adds containment only where nothing better exists. Evidence is the
+    object's own strongest co-occurring mention, keeping every edge traceable.
+    """
+
+    standards_by_artifact: dict[str, list[str]] = {}
+    for oid, cluster in assigned:
+        if cluster.object_type == "Standard":
+            for artifact_id in cluster.artifact_ids:
+                standards_by_artifact.setdefault(artifact_id, []).append(oid)
+    if not standards_by_artifact:
+        return
+
+    linked = _linked_pairs(resolved)
+    for oid, cluster in assigned:
+        if cluster.object_type == "Standard":
+            continue
+        # Best co-occurring mention (confidence, quote) per reachable standard.
+        best: dict[str, tuple[float, str, str]] = {}
+        for mention in cluster.mentions:
+            for std_oid in standards_by_artifact.get(mention.artifact_id, []):
+                if std_oid == oid:
+                    continue
+                quote = (mention.source_text or "").strip() or cluster.canonical_name
+                current = best.get(std_oid)
+                if current is None or mention.confidence > current[0]:
+                    best[std_oid] = (mention.confidence, quote, mention.artifact_id)
+        for std_oid, (confidence, quote, artifact_id) in best.items():
+            if frozenset((oid, std_oid)) in linked:
+                continue
+            if _add_resolved_edge(
+                resolved,
+                src=oid,
+                predicate="appears_in",
+                tgt=std_oid,
+                confidence=confidence,
+                quote=quote,
+                artifact_id=artifact_id,
+            ):
+                linked.add(frozenset((oid, std_oid)))
+                stats.relationships_structural += 1
+
+
+def _add_cross_reference_relationships(
+    conn,
+    assigned: list[tuple[str, Cluster]],
+    resolved: dict[tuple[str, str, str], _ResolvedRel],
+    exact: dict[str, str],
+    config: ResolutionConfig,
+    stats: ConsolidationStats,
+    allowed_artifact_ids: set[str] | None = None,
+) -> None:
+    """Add ``references`` edges for clause and standard cross-references.
+
+    Standards point at one another and at their own clauses in prose the
+    free-text miner misses. Two deterministic passes read the candidate clause
+    text and, gated on the target object already existing, add edges:
+
+    * **clause refs** - "in accordance with clause 6.2" links the citing
+      Requirement to the cited Requirement of the same standard.
+    * **standard refs** - "see EN 1990" links the citing Standard to the cited
+      Standard.
+
+    Targets resolve by *exact* name only (never fuzzy): a cross-reference edge is
+    asserted only when the cited clause/standard is unmistakably a known object,
+    so precision stays high even though the text scan is deliberately broad.
+    """
+
+    # Standard objects: a name index for the citing standard, and a list of
+    # ``(designation, oid)`` carrying the *unmodified* name for text scanning
+    # (normalize_name would strip the hyphens in "EN 1992-1-1").
+    standard_ids: dict[str, str] = {}
+    standard_designations: list[tuple[str, str]] = []
+    for oid, cluster in assigned:
+        if cluster.object_type == "Standard":
+            standard_ids[normalize_name(cluster.canonical_name)] = oid
+            standard_designations.append((cluster.canonical_name, oid))
+
+    linked = _linked_pairs(resolved)
+
+    def _exact(name: str) -> str | None:
+        return exact.get(normalize_name(name))
+
+    def _link(src: str, tgt: str, confidence: float, quote: str, artifact: str) -> None:
+        if src == tgt or frozenset((src, tgt)) in linked:
+            return
+        if _add_resolved_edge(
+            resolved,
+            src=src,
+            predicate="references",
+            tgt=tgt,
+            confidence=confidence,
+            quote=quote,
+            artifact_id=artifact,
+        ):
+            linked.add(frozenset((src, tgt)))
+            stats.relationships_crossref += 1
+
+    rows = repo.gather_candidate_requirements(
+        conn, config.min_mention_confidence, allowed_artifact_ids
+    )
+    for row in rows:
+        standard_name = (row["standard_name"] or "").strip()
+        if not standard_name:
+            continue
+        src_name = requirement_display_name(
+            standard_name, row["clause_ref"] or "", row["title"] or ""
+        )
+        src = _exact(src_name)
+        confidence = row["confidence"] if row["confidence"] is not None else 0.0
+        text = " ".join(
+            t for t in (row["requirement_text"], row["supporting_text"], row["title"]) if t
+        )
+        own_clause = (row["clause_ref"] or "").strip()
+
+        # Clause refs: cited clause -> Requirement of the same standard.
+        if src is not None:
+            for clause in find_clause_references(text):
+                if clause == own_clause:
+                    continue
+                tgt = _exact(requirement_display_name(standard_name, clause, ""))
+                if tgt is not None:
+                    _link(src, tgt, confidence, text, row["artifact_id"])
+
+        # Standard refs: this standard -> another standard cited in the text.
+        src_std = standard_ids.get(normalize_name(standard_name))
+        if src_std is not None:
+            for desig, tgt_std in standard_designations:
+                if tgt_std == src_std:
+                    continue
+                if mentions_designation(text, desig):
+                    _link(src_std, tgt_std, confidence, text, row["artifact_id"])
+
+
 def _object_description(cluster: Cluster) -> str:
     """Use the most informative supporting quote as a representative description."""
 
@@ -442,6 +631,25 @@ def consolidate(
         # Compliance: add the implied Equation edges (mandated_by / specifies).
         _add_equation_relationships(
             conn, resolved_rels, exact, canonical, config, allowed_ids
+        )
+        # Cross-references: clause-to-clause and standard-to-standard ``references``
+        # edges mined from the clause text (precise: target must already exist).
+        _add_cross_reference_relationships(
+            conn, assigned, resolved_rels, exact, config, stats, allowed_ids
+        )
+        # Connectivity guarantee: link any remaining object to the standard(s) it
+        # is documented alongside, so nothing floats unedged. Runs last so it only
+        # fills the gaps the more specific edges above did not already cover.
+        _add_appears_in_relationships(assigned, resolved_rels, stats)
+
+        # Any object still touched by no edge is a genuine island (e.g. a document
+        # with no standard at all); surface the count rather than hide it.
+        connected: set[str] = set()
+        for src, _pred, tgt in resolved_rels:
+            connected.add(src)
+            connected.add(tgt)
+        stats.objects_floating = sum(
+            1 for oid, _cluster in assigned if oid not in connected
         )
 
         rel_total: dict[str, int] = {}

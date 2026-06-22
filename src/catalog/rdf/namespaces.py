@@ -56,6 +56,7 @@ PREDICATE_MAP = {
     "satisfies": "satisfies",
     "specifies": "specifies",
     "supersedes": "supersedes",
+    "appears_in": "appearsIn",
 }
 
 # Provenance links a knowledge object to the evidence that supports it.

@@ -71,10 +71,12 @@ OBJECT_TYPES = (
 # vocabulary so relationships proposed per-document carry over cleanly. The
 # compliance predicates: a requirement is ``mandated_by`` a standard, a control
 # ``satisfies`` a requirement, a requirement ``specifies`` an equation, and an
-# amended standard/requirement ``supersedes`` the one it replaces. The trailing
-# block is the code-aware vocabulary (a module ``imports`` a library, a function
-# ``calls`` a service, a class ``extends``/``implements`` another type, a module
-# ``defines``/``exposes`` a symbol).
+# amended standard/requirement ``supersedes`` the one it replaces. ``appears_in``
+# is the structural containment edge that keeps the graph connected: any object
+# documented alongside a standard appears in it, so nothing floats unedged. The
+# trailing block is the code-aware vocabulary (a module ``imports`` a library, a
+# function ``calls`` a service, a class ``extends``/``implements`` another type, a
+# module ``defines``/``exposes`` a symbol).
 RELATIONSHIP_PREDICATES = (
     "supports",
     "depends_on",
@@ -88,6 +90,7 @@ RELATIONSHIP_PREDICATES = (
     "satisfies",
     "specifies",
     "supersedes",
+    "appears_in",
     "imports",
     "calls",
     "extends",

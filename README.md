@@ -104,8 +104,10 @@ to sensible defaults. Real API keys go in your shell environment or an ignored
 ## Integrations
 
 - **REST API** — `catalog api` (or `navigate api`) serves a thin, local-first
-  FastAPI over the same services as the CLI; interactive docs at
-  <http://127.0.0.1:8000/docs>. See [docs/navigate-api.md](docs/navigate-api.md).
+  FastAPI over the same services as the CLI: artifacts, links, knowledge,
+  governance, compliance, graph analytics, cost/usage, RDF projection, and
+  GraphRAG reasoning. Interactive docs at <http://127.0.0.1:8000/docs>. See
+  [docs/navigate-api.md](docs/navigate-api.md).
 - **MCP server** — `catalog mcp` exposes the approved graph and the GraphRAG
   assistant as Model Context Protocol tools so an agent (Claude Code, Claude
   Desktop, …) can ground its reasoning in cited knowledge. See

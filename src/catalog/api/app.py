@@ -72,7 +72,15 @@ _TAGS_METADATA = [
     },
     {
         "name": "ask",
-        "description": "GraphRAG question-answering endpoint when enabled.",
+        "description": "GraphRAG question-answering and reasoning endpoints when enabled.",
+    },
+    {
+        "name": "cost",
+        "description": "LLM token-usage and spend analytics over the recorded ledger.",
+    },
+    {
+        "name": "rdf",
+        "description": "RDF projection stats, in-memory export, and validation.",
     },
     {
         "name": "jobs",

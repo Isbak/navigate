@@ -130,6 +130,12 @@ documents billed twice (once fast, once deep). The breakdown **by model** shows
 how much traffic the fast path absorbed; the cost-vs-quality view shows whether
 the cheaper documents were also the ones the model was most confident about.
 
+The same numbers are exposed over the REST API under the `cost` tag, so a
+dashboard can chart spend without shelling out to the CLI: `GET /api/cost/summary`,
+`/by-operation`, `/by-model`, `/per-document?top=N`, and `/vs-quality?top=N`.
+These are a read-only projection of the cost ledger and make no LLM calls. See
+[the REST API contract notes](navigate-api.md#cost--llm-usage--cost-tag).
+
 ## Design boundaries
 
 - Routing decisions are **deterministic and free** (no extra LLM call to choose a

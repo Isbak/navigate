@@ -93,6 +93,79 @@ sub-resource endpoints (`.../relationships`, `.../evidence`, `.../mentions`)
 remain the way to fetch the actual rows. The CLI already surfaces these counts
 via `catalog show-object` and `catalog knowledge-stats`.
 
+## Further capability exposure
+
+The same "project an existing service function" pattern was used to surface
+several mature CLI-only capabilities through the API. Each group is a thin
+wrapper over the service/repository the matching `catalog` command already uses,
+so the contract is best read from the live `/openapi.json`; the summary below is
+a map, not a field-by-field spec.
+
+### Cost / LLM usage — `cost` tag
+
+Read-only projection of the recorded `llm_usage` ledger (no LLM call is made).
+
+| Endpoint | Returns | CLI |
+|-|-|-|
+| `GET /api/cost/summary` | overall tokens & spend | `catalog cost-report` |
+| `GET /api/cost/by-operation` | spend grouped by operation | `catalog cost-report` |
+| `GET /api/cost/by-model` | spend grouped by model | `catalog cost-report` |
+| `GET /api/cost/per-document?top=N` | most expensive documents | `catalog cost-report` |
+| `GET /api/cost/vs-quality?top=N` | spend beside classification confidence | `catalog cost-report` |
+
+### Graph analytics — `graph` tag
+
+Computed over the approved graph (same NetworkX path the CLI uses; no Fuseki).
+
+| Endpoint | Returns | CLI |
+|-|-|-|
+| `GET /api/graph/health` | islands, untraceable claims, low-confidence, duplicates, connectivity | `catalog graph health` |
+| `GET /api/graph/metrics?top=N` | density, components, clusters, centrality rankings | `catalog graph metrics` |
+| `GET /api/graph/domains` | per-object-type domains with most-central concepts | `catalog graph domains` |
+| `GET /api/graph/export-gexf` | GEXF (Gephi) document | `catalog graph export-gexf` |
+| `GET /api/graph/export-graphml` | GraphML (yEd/Cytoscape/Neo4j) document | `catalog graph export-graphml` |
+
+The two export endpoints return the serialised document as a download
+(`Content-Disposition` attachment), not the JSON envelope.
+
+### Governance extras — `governance` tag
+
+| Endpoint | Returns / does | CLI |
+|-|-|-|
+| `GET /api/governance/drift?limit=N` | `[ChangeLogEntry]` drift findings, newest first | `catalog governance drift` |
+| `GET /api/governance/owners` | `[OwnerAssignment]` (object → Team/Person/Domain) | `catalog governance owners` |
+| `GET /api/governance/objects/{id}/history` | combined audit view (changes + lifecycle + owner) | `catalog governance history <id>` |
+| `POST /api/governance/objects/{id}/assign-owner` | assign an owner (`{owner_type, owner_id}`) | `catalog governance assign-owner` |
+| `POST /api/governance/objects/{id}/flag` | flag as `NEEDS_ATTENTION` | `catalog governance flag` |
+
+`assign-owner` rejects an unknown `owner_type` with `400`; both write endpoints
+return `ActionResponse` and `404` when the object is unknown.
+
+### RDF projection — `rdf` tag
+
+| Endpoint | Returns | CLI |
+|-|-|-|
+| `GET /api/rdf/stats` | counts an export would contain (approved only) | `catalog rdf-stats` |
+| `GET /api/rdf/export?fmt=turtle` | serialised RDF (turtle / json-ld / nt) as a download | `catalog rdf-export` |
+| `GET /api/rdf/validate` | per-file re-parse of a prior `rdf-export` | `catalog rdf-validate` |
+
+`export` serialises in memory and is side-effect free; `validate` reports on
+whatever `rdf-export` previously wrote under `exports/rdf/` (empty if it has not
+been run). An unsupported `fmt` returns `400`.
+
+### GraphRAG reasoning modes — `ask` tag
+
+The single-shot reasoning modes that join `POST /api/ask`. Each is gated by
+`enable_graphrag` exactly like `ask` (returns `501` when off) and returns the
+same `AskResponse` shape (answer, confidence, citations, optional context).
+
+| Endpoint | Body | CLI |
+|-|-|-|
+| `POST /api/ask/explain` | `{term, depth, …}` | `catalog explain` |
+| `POST /api/ask/impact` | `{term, depth, …}` | `catalog impact` |
+| `POST /api/ask/compare` | `{term_a, term_b, depth, …}` | `catalog compare` |
+| `POST /api/ask/path-reason` | `{term_a, term_b, depth, …}` | `catalog path-reason` |
+
 ## The principle still holds
 
 The API remains a deliberately thin projection of the catalog, which is the

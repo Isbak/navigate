@@ -50,3 +50,18 @@ drift:
 ingestion:
   # Default cadence for ``catalog governance ingest`` (daily | weekly | manual).
   schedule: manual
+
+agent_review:
+  # Bounds on what an AI agent may auto-approve. Off by default — approval stays
+  # a human action until you opt in. The agent never picks its own thresholds or
+  # identity (they come from here), and every agent decision is attributed to
+  # "agent:<agent_name>" and reversible with `catalog governance revert` /
+  # `revert-agent`.
+  enabled: false
+  agent_name: agent           # provenance: decisions are tagged "agent:agent"
+  min_confidence: 0.85        # only approve inside this confidence window
+  max_confidence: 1.0
+  require_evidence: true      # object needs >=1 evidence row; relationship needs evidence
+  allowed_object_types: null  # null = any type; or a list, e.g. [Capability, Technology]
+  allowed_predicates: null    # null = any predicate; or a list, e.g. [supports, depends_on]
+  max_per_run: 100            # blast-radius cap: most rows approved in one pass

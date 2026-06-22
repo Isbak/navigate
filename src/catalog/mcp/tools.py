@@ -17,10 +17,17 @@ from __future__ import annotations
 
 from ..cost import record_calls
 from ..db import connect, init_db
+from ..governance import agent_review
+from ..governance import service as gov_service
+from ..governance.config import load_governance_config
+from ..governance.provenance import agent_reviewer
 from ..graph import network
 from ..graph.cli import _resolve_id, evidence_count, evidence_for, object_detail, search_objects
 from ..graph.client import GraphClient
 from ..graphrag.assistant import GraphRAGAssistant
+from ..knowledge import repository as know_repo
+from ..knowledge import service as know_service
+from ..knowledge.models import ReviewState
 from ..semantic.config import load_llm_config
 from ..semantic.providers import LLMError, build_provider
 from .config import McpSettings
@@ -201,6 +208,107 @@ def ask(settings: McpSettings, question: str, depth: int = 2) -> dict:
     return answer_to_dict(answer)
 
 
+# -- write tools (policy-gated, attributable, reversible) ---------------------
+
+def _agent_policy(settings: McpSettings):
+    return load_governance_config(settings.governance_config).agent_review
+
+
+def approve_object(settings: McpSettings, object_id: str, note: str = "") -> dict:
+    """Approve one PROPOSED object iff it passes the agent-review policy.
+
+    Declines gracefully (``approved: false`` with a reason) when agent review is
+    disabled, the object does not exist or is not PROPOSED, or it falls outside
+    the configured confidence/evidence/type policy. The decision is tagged
+    ``agent:<name>`` and is reversible.
+    """
+
+    policy = _agent_policy(settings)
+    if not (settings.enable_agent_review and policy.enabled):
+        return {"approved": False, "reason": "agent review is disabled on this server"}
+
+    init_db(settings.db_path)
+    with connect(settings.db_path) as conn:
+        row = know_repo.get_object(conn, object_id)
+        if row is None:
+            return {"approved": False, "object_id": object_id, "reason": "no such object"}
+        if row["status"] != ReviewState.PROPOSED.value:
+            return {
+                "approved": False,
+                "object_id": object_id,
+                "reason": f"object is {row['status']}, not PROPOSED",
+            }
+        ok, reason = agent_review.object_eligible(conn, row, policy)
+    if not ok:
+        return {"approved": False, "object_id": object_id, "reason": reason}
+
+    reviewer = agent_reviewer(policy.agent_name)
+    changed = gov_service.approve_object(
+        settings.db_path, object_id, reviewer=reviewer, note=note
+    )
+    return {"approved": bool(changed), "object_id": object_id, "reviewer": reviewer}
+
+
+def approve_relationship(settings: McpSettings, relationship_id: int, note: str = "") -> dict:
+    """Approve one PROPOSED relationship iff it passes the agent-review policy."""
+
+    policy = _agent_policy(settings)
+    if not (settings.enable_agent_review and policy.enabled):
+        return {"approved": False, "reason": "agent review is disabled on this server"}
+
+    init_db(settings.db_path)
+    with connect(settings.db_path) as conn:
+        row = know_repo.get_relationship(conn, relationship_id)
+        if row is None:
+            return {
+                "approved": False,
+                "relationship_id": relationship_id,
+                "reason": "no such relationship",
+            }
+        if row["review_status"] != ReviewState.PROPOSED.value:
+            return {
+                "approved": False,
+                "relationship_id": relationship_id,
+                "reason": f"relationship is {row['review_status']}, not PROPOSED",
+            }
+        ok, reason = agent_review.relationship_eligible(conn, row, policy)
+    if not ok:
+        return {"approved": False, "relationship_id": relationship_id, "reason": reason}
+
+    reviewer = agent_reviewer(policy.agent_name)
+    changed = know_service.review_relationship(
+        settings.db_path,
+        relationship_id,
+        ReviewState.APPROVED.value,
+        reviewer=reviewer,
+        note=note,
+    )
+    return {
+        "approved": bool(changed),
+        "relationship_id": relationship_id,
+        "reviewer": reviewer,
+    }
+
+
+def flag_object(settings: McpSettings, object_id: str, note: str = "") -> dict:
+    """Escalate an uncertain object to the human review queue (NEEDS_ATTENTION).
+
+    The safe complement to approval: when the agent is unsure, it can flag rather
+    than approve, leaving the decision to a human. Not bounded by the confidence
+    policy (flagging never trusts anything), only by ``enable_agent_review``.
+    """
+
+    if not settings.enable_agent_review:
+        return {"flagged": False, "reason": "agent review is disabled on this server"}
+    reviewer = agent_reviewer(_agent_policy(settings).agent_name)
+    changed = gov_service.flag_object(
+        settings.db_path, object_id, reviewer=reviewer, note=note
+    )
+    if not changed:
+        return {"flagged": False, "object_id": object_id, "reason": "no such object"}
+    return {"flagged": True, "object_id": object_id, "reviewer": reviewer}
+
+
 __all__ = [
     "search_knowledge",
     "get_object",
@@ -209,4 +317,7 @@ __all__ = [
     "find_path",
     "evidence_for_object",
     "ask",
+    "approve_object",
+    "approve_relationship",
+    "flag_object",
 ]

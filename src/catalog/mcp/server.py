@@ -80,7 +80,39 @@ def build_server(settings: McpSettings) -> Any:
         """
         return tools.ask(settings, question, depth)
 
+    if settings.enable_agent_review:
+        _register_write_tools(server, settings)
+
     return server
+
+
+def _register_write_tools(server: Any, settings: McpSettings) -> None:
+    """Register the policy-gated write tools (only when agent review is enabled).
+
+    These are the only tools that change the graph. Each stays inside the
+    ``agent_review`` policy in ``config/governance.yml`` — confidence window,
+    evidence, type/predicate allowlists — and every decision is tagged
+    ``agent:<name>`` so a human can audit and revert it.
+    """
+
+    @server.tool()
+    def approve_object(object_id: str, note: str = "") -> dict:
+        """Approve one PROPOSED knowledge object if it passes the review policy.
+
+        Returns ``approved: false`` with a reason when the object is missing, not
+        PROPOSED, or outside the configured confidence/evidence/type policy.
+        """
+        return tools.approve_object(settings, object_id, note)
+
+    @server.tool()
+    def approve_relationship(relationship_id: int, note: str = "") -> dict:
+        """Approve one PROPOSED relationship if it passes the review policy."""
+        return tools.approve_relationship(settings, relationship_id, note)
+
+    @server.tool()
+    def flag_object(object_id: str, note: str = "") -> dict:
+        """Escalate an uncertain object to the human review queue instead of approving."""
+        return tools.flag_object(settings, object_id, note)
 
 
 def run(
@@ -88,7 +120,9 @@ def run(
     db_path: str = "data/catalog.sqlite",
     queries_dir: str = "queries",
     llm_config: str = "config/llm.yml",
+    governance_config: str = "config/governance.yml",
     enable_graphrag: bool = True,
+    enable_agent_review: bool = False,
 ) -> None:
     """Start the MCP grounding server on stdio (blocks until the client exits)."""
 
@@ -96,7 +130,9 @@ def run(
         db_path=db_path,
         queries_dir=queries_dir,
         llm_config=llm_config,
+        governance_config=governance_config,
         enable_graphrag=enable_graphrag,
+        enable_agent_review=enable_agent_review,
     )
     server = build_server(settings)
     server.run()  # stdio transport is FastMCP's default

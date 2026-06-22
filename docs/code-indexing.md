@@ -56,6 +56,66 @@ changes. The new controlled-vocabulary values live in
 gains `Module/Class/Function/Library/Service/Interface/API`;
 `RELATIONSHIP_PREDICATES` gains `imports/calls/extends/exposes/defines`).
 
+## How to use
+
+Point the catalog at a repository and run the same pipeline you use for
+documents.
+
+**1. Install the grammars** (once). The tree-sitter grammars live in the `code`
+extra; they are already included in `.[dev]`:
+
+```bash
+pip install -e '.[code]'
+```
+
+If you skip this, code is still ingested and classified — just with
+character-based chunking and no syntax outline (graceful degradation).
+
+**2. Point a source at your repo** in `config/sources.yml`:
+
+```yaml
+sources:
+  - path: "~/work/my-service"
+    source_system: "git_repo"
+
+index_code: true   # default
+```
+
+Vendor/build directories (`node_modules`, `.venv`, `dist`, `build`, `target`, …)
+are excluded automatically; add your own patterns under `exclude:` as needed.
+
+**3. Run the pipeline:**
+
+```bash
+catalog init-db          # create the local SQLite database (once)
+catalog scan             # ingest files; auto-extracts text + the structure sidecar
+catalog classify         # LLM + structural classification (needs a provider, below)
+catalog consolidate      # merge per-file candidates into the knowledge graph
+```
+
+`classify` calls the LLM provider in `config/llm.yml`. For the default Claude
+provider, set `ANTHROPIC_API_KEY` (see `.env.example`). Re-runs are incremental —
+only files whose content changed are reclassified; add `--force` to redo all, or
+`--artifact-id <id>` (repeatable) to target specific files.
+
+**4. Inspect the results:**
+
+```bash
+catalog classification-stats              # counts by document_type (incl. "Source Code")
+catalog show-relationships                # proposed edges (imports / defines / calls / …)
+catalog search-knowledge "PaymentService" # find a consolidated object by name
+catalog export-graph-json                 # write nodes.json + edges.json
+catalog rdf-export                        # project the graph to RDF/Turtle
+```
+
+The deterministic per-file outline (imports, classes, functions with line spans)
+is cached at `cache/<artifact_id>/code_structure.json`, and the file's language
+is recorded in `cache/<artifact_id>/metadata.json`.
+
+Everything proposed starts as an unreviewed candidate (`review_status = NEW`);
+approve objects/relationships (`catalog approve-object <id>`, `review-candidates`)
+to promote them into the trusted graph, exactly as for documents.
+
 ## Languages and grammars
 
 Each language uses a tree-sitter grammar wheel from the `code` extra

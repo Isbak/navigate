@@ -33,6 +33,13 @@ _CLASS_COMMENTS = {
     "Standard": "A standard, regulation, or policy family that states obligations.",
     "Requirement": "A normative clause, article, or control of a standard.",
     "Equation": "A normative formula/equation stated by a standard.",
+    "Module": "A source-code file or module.",
+    "Class": "A class, struct, or type defined in source code.",
+    "Function": "A function or method defined in source code.",
+    "Library": "An external package or library a module depends on.",
+    "Service": "An external service or system that code communicates with.",
+    "Interface": "An interface, protocol, or abstract type in source code.",
+    "API": "An API or endpoint exposed or consumed by code.",
 }
 
 # Relationship predicate -> (label, comment). Keyed by the camelCase ontology

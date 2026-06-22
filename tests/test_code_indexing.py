@@ -12,6 +12,8 @@ from catalog.code import (
 )
 from catalog.code import chunking as code_chunking
 from catalog.code import structure as code_structure
+from catalog.knowledge.export import build_edges, build_nodes
+from catalog.knowledge.service import consolidate
 from catalog.scanner import scan
 from catalog.semantic.code_prompts import build_code_classification_prompt
 from catalog.semantic.parser import parse_classification_response
@@ -319,6 +321,57 @@ def test_classify_code_merges_llm_and_structure(tmp_path):
         "SELECT document_type FROM document_classifications"
     ).fetchone()[0]
     assert doctype == "Source Code"
+
+
+def test_code_reaches_knowledge_graph_end_to_end(tmp_path):
+    """Whole pipeline on a real repo: scan -> extract -> classify -> consolidate.
+
+    Proves the product claim that code flows all the way into the consolidated
+    knowledge graph and its export, not just the per-document candidate tables.
+    """
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "service.py").write_text(PY_SOURCE, encoding="utf-8")
+
+    config = _write_config(tmp_path, repo)
+    db = tmp_path / "catalog.sqlite"
+    cache = tmp_path / "cache"
+
+    # 1. Real scan: ingests the file and runs the extraction subscriber (which
+    #    writes extracted.txt, metadata.json with language, and the structure
+    #    sidecar) - no hand-written cache.
+    scan(config, db, cache)
+    # 2. Classify with a stub LLM (folds in the deterministic structure).
+    classify_documents(db, cache, _CodeStubProvider(), max_input_chars=2000)
+    # 3. Consolidate per-document candidates into the knowledge graph.
+    consolidate(db)
+
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+
+    objects = {
+        (r["object_type"], r["canonical_name"])
+        for r in conn.execute(
+            "SELECT object_type, canonical_name FROM knowledge_objects"
+        )
+    }
+    assert ("Module", "service.py") in objects
+    assert ("Class", "Service") in objects
+    assert any(object_type == "Function" for object_type, _ in objects)
+
+    predicates = {
+        r["predicate"]
+        for r in conn.execute("SELECT predicate FROM knowledge_relationships")
+    }
+    # The deterministic code edges survive into the consolidated graph.
+    assert {"defines", "imports"} & predicates
+
+    # The graph export surfaces the code objects and at least one code edge.
+    node_types = {n["type"] for n in build_nodes(conn)}
+    assert {"Module", "Class", "Function"} <= node_types
+    edge_predicates = {e["predicate"] for e in build_edges(conn)}
+    assert {"defines", "imports"} & edge_predicates
 
 
 def test_classify_code_degrades_without_grammar(tmp_path, monkeypatch):

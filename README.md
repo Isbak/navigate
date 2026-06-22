@@ -264,6 +264,12 @@ All commands accept alternate paths:
 catalog --config config/sources.yml --db data/catalog.sqlite --cache cache --link-config config/link_patterns.yml scan
 ```
 
+The same `scan → classify → consolidate` flow works on a **code repository** —
+point a source at the repo, then inspect the result with `show-relationships`,
+`search-knowledge`, and `export-graph-json`. See
+[docs/code-indexing.md](docs/code-indexing.md#how-to-use) for the step-by-step
+walkthrough.
+
 ## Scan status
 
 Every artifact carries a `scan_status` describing what the most recent scan

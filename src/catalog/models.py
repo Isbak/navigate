@@ -13,3 +13,5 @@ class Source:
 class CatalogConfig:
     sources: list[Source]
     exclude: list[str]
+    # When True the scanner also ingests source-code files (code-aware indexing).
+    index_code: bool = True

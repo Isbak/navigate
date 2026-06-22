@@ -18,6 +18,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .code import CODE_EXTENSIONS
 from .config import load_config
 from .db import (
     connect,
@@ -52,8 +53,16 @@ def is_excluded(path: Path, patterns: list[str]) -> bool:
     )
 
 
-def iter_documents(source: Path, exclude: list[str]) -> Iterator[Path]:
-    """Yield supported, non-excluded files beneath ``source`` recursively."""
+def iter_documents(
+    source: Path,
+    exclude: list[str],
+    extensions: set[str] | frozenset[str] = SUPPORTED_EXTENSIONS,
+) -> Iterator[Path]:
+    """Yield supported, non-excluded files beneath ``source`` recursively.
+
+    ``extensions`` is the effective set to accept; the scanner passes
+    ``SUPPORTED_EXTENSIONS`` plus the code extensions when code indexing is on.
+    """
 
     if not source.exists():
         LOGGER.warning("Source path does not exist: %s", source)
@@ -61,7 +70,7 @@ def iter_documents(source: Path, exclude: list[str]) -> Iterator[Path]:
     for path in source.rglob("*"):
         if (
             path.is_file()
-            and path.suffix.lower() in SUPPORTED_EXTENSIONS
+            and path.suffix.lower() in extensions
             and not is_excluded(path, exclude)
         ):
             yield path
@@ -173,6 +182,11 @@ class Scanner:
         started_at = utc_now()
         scanned_at = started_at
 
+        # Code-aware indexing extends the accepted file types with source code.
+        extensions = SUPPORTED_EXTENSIONS | (
+            CODE_EXTENSIONS if cfg.index_code else frozenset()
+        )
+
         with connect(self.db_path) as conn:
             existing = existing_artifacts(conn)
 
@@ -181,7 +195,7 @@ class Scanner:
         seen_paths: set[str] = set()
         for source in cfg.sources:
             root = Path(source.path).expanduser()
-            for path in iter_documents(root, cfg.exclude):
+            for path in iter_documents(root, cfg.exclude, extensions):
                 resolved = str(path.resolve())
                 try:
                     artifact = _build_artifact(

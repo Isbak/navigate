@@ -63,7 +63,7 @@ The `links/` package is organized for extension:
 
 ## Supported files
 
-The scanner recursively indexes:
+The scanner recursively indexes documents:
 
 - `.docx`
 - `.pptx`
@@ -71,6 +71,25 @@ The scanner recursively indexes:
 - `.pdf`
 - `.md`
 - `.txt`
+
+…and, with **code-aware indexing** (on by default), source code:
+
+- `.py`, `.pyi`
+- `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`
+- `.go`, `.rs`, `.java`, `.c`, `.h`, `.cc`, `.cpp`, `.hpp`, `.cs`
+- `.rb`, `.php`, `.sh`, `.bash`
+
+Source files are parsed with [tree-sitter](https://tree-sitter.github.io/): they
+are chunked along function/class boundaries (never sliced mid-function), their
+imports/classes/functions are read off the syntax tree as `Module`, `Class`,
+`Function`, and `Library` entities linked by `defines`/`imports`, and they are
+classified with a code-specific prompt that adds the module's purpose, the
+services/APIs it talks to, and any security or design risks. All of this flows
+through the same review → approve knowledge graph used for documents.
+
+Set `index_code: false` in `config/sources.yml` to index documents only. When
+code indexing is on, vendored and build directories (`node_modules`, `.venv`,
+`dist`, `build`, `target`, …) are excluded automatically.
 
 ## Installation
 
@@ -81,6 +100,11 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 ```
+
+The tree-sitter language grammars used for code-aware indexing ship in the
+`code` extra (`pip install -e '.[code]'`, included in `.[dev]`). Any language
+whose grammar is not installed degrades gracefully: the file is still ingested
+and classified, just with character-based chunking and no syntax outline.
 
 ## Configuration
 
@@ -239,6 +263,12 @@ All commands accept alternate paths:
 ```bash
 catalog --config config/sources.yml --db data/catalog.sqlite --cache cache --link-config config/link_patterns.yml scan
 ```
+
+The same `scan → classify → consolidate` flow works on a **code repository** —
+point a source at the repo, then inspect the result with `show-relationships`,
+`search-knowledge`, and `export-graph-json`. See
+[docs/code-indexing.md](docs/code-indexing.md#how-to-use) for the step-by-step
+walkthrough.
 
 ## Scan status
 

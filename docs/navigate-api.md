@@ -3,8 +3,8 @@
 This document describes the Navigate REST API from the point of view of a
 client — primarily [`navigate-compass`](https://github.com/isbak/navigate) (the
 "Compas" UI), but the contract is the same for any consumer. It complements the
-endpoint table in the project [`README.md`](../README.md#rest-api) and the live
-OpenAPI schema served at `/openapi.json`; it does not duplicate them.
+[integrations overview in the project `README.md`](../README.md#integrations) and
+the live OpenAPI schema served at `/openapi.json`; it does not duplicate them.
 
 ## Ground rules
 

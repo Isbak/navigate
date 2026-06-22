@@ -50,6 +50,22 @@ def _seed_relationship(conn, artifact_id, subject, predicate, obj, confidence=0.
     )
 
 
+def _seed_requirement(
+    conn, artifact_id, standard_name, clause_ref, text, *, title="", confidence=0.9
+):
+    conn.execute(
+        """
+        INSERT INTO candidate_requirements(
+            artifact_id, standard_name, standard_version, clause_ref, title,
+            requirement_text, obligation_level, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, '2002', ?, ?, ?, 'MANDATORY', ?, ?, 'OBSERVATION',
+                  'NEW', 'stub', 't')
+        """,
+        (artifact_id, standard_name, clause_ref, title, text, confidence, text),
+    )
+
+
 def _seed_decision(conn, artifact_id, decision_text, title, confidence=0.8):
     conn.execute(
         """
@@ -229,6 +245,81 @@ def test_relationship_with_unresolvable_endpoint_is_skipped(tmp_path):
     stats = consolidate(db)
     assert stats.relationships_created == 0
     assert stats.relationships_unresolved == 1
+
+
+def test_floating_object_is_connected_to_its_standard(tmp_path):
+    # A concept extracted from a standard's document, with no mined relationship,
+    # would float. The connectivity guarantee links it to the standard so the
+    # graph has no islands - and a Requirement keeps its specific mandated_by edge
+    # instead of a redundant appears_in.
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_requirement(conn, "doc_a", "EN 1990", "6.2", "Verify the limit state.")
+        _seed_entity(conn, "doc_a", "Concept", "Partial Factor")
+        conn.commit()
+
+    stats = consolidate(db)
+    assert stats.relationships_structural >= 1
+    assert stats.objects_floating == 0
+
+    with connect(db) as conn:
+        rels = repo.relationships_for_object(conn, "concept_partial_factor")
+        appears = [r for r in rels if r["predicate"] == "appears_in"]
+        assert len(appears) == 1
+        assert appears[0]["source_object"] == "concept_partial_factor"
+        assert appears[0]["target_object"] == "standard_en_1990"
+        # Evidence is carried, keeping the structural edge traceable.
+        assert appears[0]["evidence"] and appears[0]["evidence"] != "[]"
+
+        # The requirement is connected by its specific mandated_by edge, not a
+        # duplicate appears_in.
+        req_rels = repo.relationships_for_object(conn, "requirement_en_1990_6_2")
+        preds = {r["predicate"] for r in req_rels}
+        assert "mandated_by" in preds
+        assert "appears_in" not in preds
+
+
+def test_clause_cross_reference_links_requirements(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_requirement(
+            conn, "doc_a", "EN 1990", "6.2",
+            "Combinations shall be taken in accordance with clause 6.3.",
+        )
+        _seed_requirement(conn, "doc_a", "EN 1990", "6.3", "Partial factors apply.")
+        conn.commit()
+
+    stats = consolidate(db)
+    assert stats.relationships_crossref >= 1
+
+    with connect(db) as conn:
+        rels = repo.relationships_for_object(conn, "requirement_en_1990_6_2")
+        refs = [r for r in rels if r["predicate"] == "references"]
+        assert any(r["target_object"] == "requirement_en_1990_6_3" for r in refs)
+
+
+def test_standard_cross_reference_links_standards(tmp_path):
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_requirement(
+            conn, "doc_a", "EN 1992", "5.1",
+            "Actions shall be determined in accordance with EN 1990.",
+        )
+        _seed_requirement(conn, "doc_b", "EN 1990", "1.1", "Basis of design.")
+        conn.commit()
+
+    consolidate(db)
+    with connect(db) as conn:
+        rels = repo.relationships_for_object(conn, "standard_en_1992")
+        refs = [
+            r for r in rels
+            if r["predicate"] == "references"
+            and r["target_object"] == "standard_en_1990"
+        ]
+        assert len(refs) == 1
 
 
 def test_confidence_scales_with_document_support(tmp_path):

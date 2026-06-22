@@ -57,6 +57,7 @@ _PREDICATE_COMMENTS = {
     "satisfies": "The subject control satisfies the object requirement.",
     "specifies": "The subject requirement specifies the object equation.",
     "supersedes": "The subject supersedes the object it replaces.",
+    "appearsIn": "The subject appears in (is documented by) the object.",
 }
 
 

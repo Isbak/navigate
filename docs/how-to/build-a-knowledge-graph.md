@@ -99,6 +99,28 @@ human decisions (ids are stable); `--force` discards them. Low-confidence,
 one-off proposals are dropped before clustering by the **noise floor**
 (`min_mention_confidence`, default `0.3`).
 
+### Edge connection assessment (no floating objects)
+
+Relationships are not only mined from free-text proposals. After clustering,
+consolidation also **derives** edges deterministically so the graph stays
+connected — the run reports how many of each it added:
+
+- **Structural (`appears_in`)** — every object documented alongside a standard
+  is linked to that standard, so a concept, process, or term pulled from the
+  document is never a floating island. A requirement keeps its more specific
+  `mandated_by` edge instead of a redundant `appears_in`.
+- **Cross-references (`references`)** — clause citations in the text
+  (“in accordance with clause 6.2”) link the citing requirement to the cited one,
+  and standard citations (“see EN 1990”) link standard to standard. A
+  cross-reference becomes an edge only when the cited clause/standard already
+  exists as an object, so precision stays high.
+
+The summary line **`Floating objects (no edge)`** is your connectivity check: it
+should be `0` for a standard whose document was fully extracted. A non-zero count
+means objects were found in material with no standard to anchor them — review the
+upstream extraction for that source. The `governance orphans` and
+`graph health` commands list the specific objects.
+
 To permanently remove all material for a file or folder:
 
 ```bash

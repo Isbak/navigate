@@ -791,7 +791,10 @@ def _cmd_consolidate(args) -> None:
     print(f"Mentions linked: {_fmt(stats.mentions_linked)}")
     print(f"Evidence rows: {_fmt(stats.evidence_created)}")
     print(f"Relationships: {_fmt(stats.relationships_created)}")
+    print(f"  structural (appears_in): {_fmt(stats.relationships_structural)}")
+    print(f"  cross-references: {_fmt(stats.relationships_crossref)}")
     print(f"Relationships unresolved: {_fmt(stats.relationships_unresolved)}")
+    print(f"Floating objects (no edge): {_fmt(stats.objects_floating)}")
     if not args.force:
         print(f"Review statuses preserved: {_fmt(stats.statuses_preserved)}")
     if stats.by_object_type:

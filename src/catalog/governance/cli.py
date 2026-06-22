@@ -9,6 +9,7 @@ quality, and alert numbers current.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 
 from ..db import connect, init_db
 from . import dashboard as dashboard_mod
@@ -16,6 +17,7 @@ from . import domains as domain_analysis
 from . import export as export_mod
 from . import orphans as orphan_mod
 from . import repository as repo
+from .agent_review import agent_approve, revert_agent_actions, revert_review
 from .config import load_governance_config
 from .models import OPEN_REVIEW_STATES, FreshnessState
 from .ownership import assign_owner
@@ -334,6 +336,85 @@ def _cmd_changes(args) -> None:
         )
 
 
+def _cmd_agent_approve(args) -> None:
+    console = _console()
+    policy = _config(args).agent_review
+    overrides: dict = {}
+    if args.agent is not None:
+        overrides["agent_name"] = args.agent
+    if args.min_confidence is not None:
+        overrides["min_confidence"] = args.min_confidence
+    if args.max_confidence is not None:
+        overrides["max_confidence"] = args.max_confidence
+    if overrides:
+        policy = dataclasses.replace(policy, **overrides)
+
+    stats = agent_approve(
+        args.db,
+        config=policy,
+        target=args.target,
+        note=args.note or "",
+        dry_run=args.dry_run,
+    )
+    obj_n = sum(1 for c in stats.candidates if c["kind"] == "object")
+    rel_n = sum(1 for c in stats.candidates if c["kind"] == "relationship")
+    console.print(f"[bold]Agent review[/bold] (reviewer {stats.reviewer})")
+    if stats.dry_run:
+        console.print(
+            f"Would approve: {obj_n} object(s), {rel_n} relationship(s)  "
+            f"(dry run — nothing written)"
+        )
+    else:
+        console.print(
+            f"Approved: {stats.objects_approved} object(s), "
+            f"{stats.relationships_approved} relationship(s)    "
+            f"skipped: {stats.objects_skipped + stats.relationships_skipped}"
+        )
+    for c in stats.candidates[:25]:
+        console.print(f"  [{c['kind']}] {c['label']}  (conf {c['confidence']:.2f})  id={c['id']}")
+
+
+def _infer_target_kind(target: str) -> str:
+    """Relationship ids are integers; object ids are slugs."""
+
+    return "relationship" if str(target).isdigit() else "object"
+
+
+def _cmd_revert(args) -> None:
+    console = _console()
+    kind = args.kind or _infer_target_kind(args.target)
+    result = revert_review(
+        args.db, kind, args.target, reviewer=args.reviewer, note=args.note or ""
+    )
+    if result.reverted:
+        console.print(
+            f"{result.target_kind} {result.target_id}: "
+            f"{result.from_state} -> {result.to_state}"
+        )
+    else:
+        console.print(f"[red]Nothing reverted: {result.reason}[/red]")
+
+
+def _cmd_revert_agent(args) -> None:
+    console = _console()
+    stats = revert_agent_actions(
+        args.db,
+        agent=args.agent,
+        since=args.since,
+        reviewer=args.reviewer,
+        note=args.note or "",
+    )
+    console.print(
+        f"[bold]Revert agent actions[/bold]: {stats.reverted} reverted, "
+        f"{stats.skipped} skipped"
+    )
+    for r in stats.results[:25]:
+        if r.reverted:
+            console.print(
+                f"  {r.target_kind} {r.target_id}: {r.from_state} -> {r.to_state}"
+            )
+
+
 def _cmd_export(args) -> None:
     console = _console()
     config = _config(args)
@@ -444,6 +525,38 @@ def add_governance_parser(sub: argparse._SubParsersAction) -> None:
         p.add_argument("--reviewer", default="cli")
         p.add_argument("--note", default="")
 
+    aa = gsub.add_parser(
+        "agent-approve",
+        help="let an agent approve eligible PROPOSED items under the policy",
+    )
+    aa.add_argument(
+        "--target", choices=("objects", "relationships", "all"), default="all"
+    )
+    aa.add_argument("--agent", default=None, help="agent name (provenance: agent:<name>)")
+    aa.add_argument("--min-confidence", type=float, default=None, dest="min_confidence")
+    aa.add_argument("--max-confidence", type=float, default=None, dest="max_confidence")
+    aa.add_argument("--note", default="")
+    aa.add_argument(
+        "--dry-run", action="store_true", help="list what would be approved; write nothing"
+    )
+
+    rv = gsub.add_parser("revert", help="undo the latest review decision on one target")
+    rv.add_argument("target", help="object id or relationship id")
+    rv.add_argument(
+        "--kind", choices=("object", "relationship"), default=None,
+        help="override the inferred target kind",
+    )
+    rv.add_argument("--reviewer", default="cli")
+    rv.add_argument("--note", default="")
+
+    ra = gsub.add_parser(
+        "revert-agent", help="bulk-undo agent decisions (by agent name / since)"
+    )
+    ra.add_argument("--agent", default=None, help="limit to this agent (default: all agents)")
+    ra.add_argument("--since", default=None, help="ISO-8601 lower bound on decision time")
+    ra.add_argument("--reviewer", default="cli")
+    ra.add_argument("--note", default="")
+
     owner = gsub.add_parser("assign-owner", help="assign an owner to an object")
     owner.add_argument("object")
     owner.add_argument("owner_type", help="Team | Person | Domain")
@@ -483,6 +596,9 @@ def run_governance(args) -> None:
         "domains": _cmd_domains,
         "drift": _cmd_drift,
         "changes": _cmd_changes,
+        "agent-approve": _cmd_agent_approve,
+        "revert": _cmd_revert,
+        "revert-agent": _cmd_revert_agent,
         "export": _cmd_export,
         "ingest": _cmd_ingest,
     }

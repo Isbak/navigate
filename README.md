@@ -96,7 +96,7 @@ to sensible defaults. Real API keys go in your shell environment or an ignored
 | `link_patterns.yml` | internal domains, system matching | [Discover and classify links](docs/how-to/discover-and-classify-links.md#4-optional-tell-navigate-which-domains-are-internal) |
 | `llm.yml` | provider, chunking, adaptive routing | [Build a knowledge graph](docs/how-to/build-a-knowledge-graph.md#1-configure-an-llm-provider) |
 | `pricing.yml` | token rates for cost reporting | [docs/llm-optimization.md](docs/llm-optimization.md) |
-| `governance.yml` | freshness, quality, drift, cadence | [Govern your knowledge](docs/how-to/govern-your-knowledge.md) |
+| `governance.yml` | freshness, quality, drift, cadence, agent-review policy | [Govern your knowledge](docs/how-to/govern-your-knowledge.md) |
 | `jena.yml` | Fuseki endpoint / dataset | [Publish to RDF and SPARQL](docs/how-to/publish-to-rdf-and-sparql.md) |
 | `compliance.yml` | control types, coverage, staleness | [docs/compliance.md](docs/compliance.md) |
 | `api.yml` | REST API host/port/auth/flags | [docs/navigate-api.md](docs/navigate-api.md) |
@@ -110,8 +110,10 @@ to sensible defaults. Real API keys go in your shell environment or an ignored
   [docs/navigate-api.md](docs/navigate-api.md).
 - **MCP server** — `catalog mcp` exposes the approved graph and the GraphRAG
   assistant as Model Context Protocol tools so an agent (Claude Code, Claude
-  Desktop, …) can ground its reasoning in cited knowledge. See
-  [docs/mcp.md](docs/mcp.md) and
+  Desktop, …) can ground its reasoning in cited knowledge. With
+  `--enable-agent-review` it also exposes opt-in, policy-gated write tools so an
+  agent can approve high-confidence items — every decision tagged `agent:<name>`
+  and reversible. See [docs/mcp.md](docs/mcp.md) and
   [Ground an AI agent in your code](docs/how-to/ground-an-ai-agent-in-your-code.md).
 - **Docker** — a `Dockerfile` and `docker-compose.yml` package the API and an
   optional Apache Jena Fuseki triplestore (`docker compose up --build api`,

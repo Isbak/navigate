@@ -8,7 +8,7 @@ serializers in :mod:`catalog.api.serializers` map rows onto these models.
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -561,6 +561,62 @@ class ObjectHistory(BaseModel):
     changes: list[ChangeLogEntry] = Field(default_factory=list)
     lifecycle: dict[str, Any] | None = None
     owner: OwnerAssignment | None = None
+
+
+# -- agent review -------------------------------------------------------------
+
+class AgentApproveRequest(BaseModel):
+    """Override the configured agent-review policy for a single pass.
+
+    Any field left ``None`` falls back to ``config/governance.yml``'s
+    ``agent_review`` policy; the agent identity and thresholds are never taken
+    from an in-loop model, only from config or an explicit human-issued request.
+    """
+
+    target: Literal["objects", "relationships", "all"] = "all"
+    agent: str | None = None
+    min_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    note: str = ""
+    dry_run: bool = False
+
+
+class AgentApproveResponse(BaseModel):
+    reviewer: str
+    dry_run: bool
+    objects_approved: int
+    relationships_approved: int
+    objects_skipped: int
+    relationships_skipped: int
+    total_approved: int
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RevertRequest(BaseModel):
+    target_kind: Literal["object", "relationship"]
+    target_id: str
+    note: str = ""
+
+
+class RevertResponse(BaseModel):
+    reverted: bool
+    target_kind: str
+    target_id: str
+    from_state: str = ""
+    to_state: str = ""
+    reason: str = ""
+
+
+class RevertAgentRequest(BaseModel):
+    agent: str | None = None
+    since: str | None = None
+    note: str = ""
+
+
+class RevertAgentResponse(BaseModel):
+    reverted: int
+    skipped: int
+    results: list[RevertResponse] = Field(default_factory=list)
 
 
 # -- rdf ----------------------------------------------------------------------

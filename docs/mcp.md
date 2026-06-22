@@ -69,6 +69,42 @@ a stable object id (`capability_release_governance`) or a human name
 (`"Release Governance"`); ambiguous or unknown names come back with
 `found: false` and a `candidates` list.
 
+### Write tools (opt-in, policy-gated)
+
+By default the server is **read + Q&A only**. Pass `--enable-agent-review` to also
+expose three write tools that let an agent take the high-confidence, low-risk
+review decisions off a human's plate — without giving up governance:
+
+```bash
+catalog mcp --enable-agent-review            # also reads config/governance.yml
+```
+
+| Tool | What it does |
+|------|--------------|
+| `approve_object(object_id, note="")` | Approve one `PROPOSED` object **iff** it passes the agent-review policy |
+| `approve_relationship(relationship_id, note="")` | Approve one `PROPOSED` relationship **iff** it passes the policy |
+| `flag_object(object_id, note="")` | Escalate an uncertain object to the human review queue (`NEEDS_ATTENTION`) instead of approving — the safe complement to approval |
+
+These stay safe by construction:
+
+- **The agent never sets its own thresholds or identity.** They come from the
+  `agent_review` block in `config/governance.yml` (confidence window, evidence
+  requirement, object-type/predicate allowlists), not from the tool arguments.
+  The tools are also inert unless **both** `--enable-agent-review` (server flag)
+  and `agent_review.enabled: true` (config) are set.
+- **Every decision is attributable.** Approvals reuse the normal `APPROVED` state
+  but are tagged `agent:<agent_name>` in the reviewer column, so they are
+  filterable in `catalog governance history` and the change-log feed.
+- **Every decision is reversible.** A human undoes a single one with
+  `catalog governance revert <id>` or a whole batch with
+  `catalog governance revert-agent --agent <name>` (see
+  [govern-your-knowledge](how-to/govern-your-knowledge.md)).
+
+When a target is missing, already decided, or outside the policy, the tool
+returns `{"approved": false, "reason": …}` rather than raising — the same
+graceful-decline shape as `ask`. Object/relationship ids come from the review
+queue (`catalog governance review-queue`, the REST API, or a human).
+
 ## Connecting an MCP client
 
 Add the server to your MCP client's config. For Claude Code:
@@ -96,6 +132,8 @@ the client's environment if you want the `ask` tool enabled.
 
 ## Scope
 
-Read + Q&A only — there are no write/approve tools, which keeps the agent surface
-safe (approval stays a human, CLI/API action). Only **stdio** transport is
-provided today; an HTTP/SSE transport can be added later for a remote client.
+Read + Q&A by default; opt-in, **policy-gated** writes via `--enable-agent-review`
+(see [Write tools](#write-tools-opt-in-policy-gated)). The write surface is
+bounded by config, attributable (`agent:<name>`), and reversible, so a human stays
+in control even when an agent does the routine approving. Only **stdio** transport
+is provided today; an HTTP/SSE transport can be added later for a remote client.

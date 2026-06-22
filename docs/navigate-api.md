@@ -141,6 +141,23 @@ The two export endpoints return the serialised document as a download
 `assign-owner` rejects an unknown `owner_type` with `400`; both write endpoints
 return `ActionResponse` and `404` when the object is unknown.
 
+### Agent review & undo — `governance` tag
+
+Policy-bounded agent approval and its human undo. The policy (confidence window,
+evidence requirement, type/predicate allowlists, per-run cap) comes from the
+`agent_review` block of `config/governance.yml`; request fields only *narrow* it.
+Decisions are tagged `agent:<name>` and are reversible.
+
+| Endpoint | Body / does | CLI |
+|-|-|-|
+| `POST /api/governance/agent-approve` | `{target, agent?, min_confidence?, max_confidence?, note, dry_run}` → `AgentApproveResponse` (counts + candidates) | `catalog governance agent-approve` |
+| `POST /api/governance/revert` | `{target_kind, target_id, note}` → `RevertResponse` (undo one decision) | `catalog governance revert` |
+| `POST /api/governance/revert-agent` | `{agent?, since?, note}` → `RevertAgentResponse` (undo a batch) | `catalog governance revert-agent` |
+
+`agent-approve` with `dry_run: true` writes nothing and returns the candidate
+list. `revert-agent` never overrides a decision a human made after the agent. The
+same policy and tags back the opt-in MCP write tools (see [docs/mcp.md](mcp.md)).
+
 ### RDF projection — `rdf` tag
 
 | Endpoint | Returns | CLI |

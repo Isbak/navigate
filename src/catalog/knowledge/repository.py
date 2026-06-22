@@ -480,6 +480,54 @@ def review_actions_for(conn: sqlite3.Connection, target_id: str) -> tuple[str, .
     return tuple(r["action"] for r in rows)
 
 
+def reviews_for_target(
+    conn: sqlite3.Connection, target_kind: str, target_id: str
+) -> list[sqlite3.Row]:
+    """Full ordered review history for one target (oldest first)."""
+
+    return conn.execute(
+        "SELECT * FROM knowledge_reviews WHERE target_kind = ? AND target_id = ? "
+        "ORDER BY id",
+        (target_kind, target_id),
+    ).fetchall()
+
+
+def agent_reviews(
+    conn: sqlite3.Connection,
+    *,
+    reviewer_prefix: str,
+    since: str | None = None,
+) -> list[sqlite3.Row]:
+    """Latest agent-attributed review per target, newest first.
+
+    Used by the bulk agent-undo: it returns one row per target (the agent's most
+    recent action on it) so a batch of agent decisions can be rolled back. Pass an
+    exact ``agent:<name>`` to scope to one agent, or the bare ``agent:`` prefix
+    for all agents.
+    """
+
+    like = f"{reviewer_prefix}%" if reviewer_prefix.endswith(":") else reviewer_prefix
+    where = ["reviewer LIKE ?"]
+    params: list[object] = [like]
+    if since:
+        where.append("created_at >= ?")
+        params.append(since)
+    return conn.execute(
+        "SELECT target_kind, target_id, MAX(id) AS id, reviewer, created_at "
+        "FROM knowledge_reviews WHERE " + " AND ".join(where) + " "
+        "GROUP BY target_kind, target_id ORDER BY id DESC",
+        params,
+    ).fetchall()
+
+
+def get_relationship(
+    conn: sqlite3.Connection, relationship_id: int
+) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM knowledge_relationships WHERE id = ?", (relationship_id,)
+    ).fetchone()
+
+
 def set_object_status(
     conn: sqlite3.Connection, object_id: str, status: str, updated_at: str
 ) -> bool:

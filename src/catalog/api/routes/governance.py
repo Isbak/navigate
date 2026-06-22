@@ -3,11 +3,13 @@ quality, domains, change-log feed, and the knowledge-growth trend."""
 
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 
+from ...governance import agent_review as agent_review_mod
 from ...governance import domains as domain_analysis
 from ...governance import ownership
 from ...governance import repository as gov_repo
@@ -25,6 +27,8 @@ from ..errors import bad_request, not_found
 from ..pagination import Pagination, pagination_params
 from ..schemas import (
     ActionResponse,
+    AgentApproveRequest,
+    AgentApproveResponse,
     AssignOwnerRequest,
     ChangeLogEntry,
     DomainHealth,
@@ -35,6 +39,10 @@ from ..schemas import (
     PaginatedResponse,
     QualityItem,
     QualityResponse,
+    RevertAgentRequest,
+    RevertAgentResponse,
+    RevertRequest,
+    RevertResponse,
     ReviewQueueItem,
     StaleItem,
 )
@@ -255,6 +263,79 @@ def quality(
         for r in rows
     ]
     return QualityResponse(average_quality=gov_repo.average_quality(conn), items=items)
+
+
+@router.post("/agent-approve", response_model=AgentApproveResponse)
+def agent_approve(
+    request: AgentApproveRequest,
+    settings: ApiSettings = Depends(get_settings),
+) -> AgentApproveResponse:
+    """Approve eligible PROPOSED items under the agent-review policy.
+
+    Decisions are tagged ``agent:<name>`` and are reversible via ``/revert`` and
+    ``/revert-agent``. Use ``dry_run`` to preview the candidates without writing.
+    """
+
+    policy = load_governance_config(settings.governance_config).agent_review
+    overrides: dict[str, Any] = {}
+    if request.agent is not None:
+        overrides["agent_name"] = request.agent
+    if request.min_confidence is not None:
+        overrides["min_confidence"] = request.min_confidence
+    if request.max_confidence is not None:
+        overrides["max_confidence"] = request.max_confidence
+    if overrides:
+        policy = dataclasses.replace(policy, **overrides)
+
+    try:
+        stats = agent_review_mod.agent_approve(
+            settings.db_path,
+            config=policy,
+            target=request.target,
+            note=request.note,
+            dry_run=request.dry_run,
+        )
+    except ValueError as exc:
+        raise bad_request(str(exc)) from exc
+    return AgentApproveResponse(**stats.as_dict())
+
+
+@router.post("/revert", response_model=RevertResponse)
+def revert(
+    request: RevertRequest,
+    settings: ApiSettings = Depends(get_settings),
+) -> RevertResponse:
+    """Undo the latest review decision on one target, back to its prior state."""
+
+    result = agent_review_mod.revert_review(
+        settings.db_path,
+        request.target_kind,
+        request.target_id,
+        reviewer="api",
+        note=request.note,
+    )
+    return RevertResponse(**result.as_dict())
+
+
+@router.post("/revert-agent", response_model=RevertAgentResponse)
+def revert_agent(
+    request: RevertAgentRequest,
+    settings: ApiSettings = Depends(get_settings),
+) -> RevertAgentResponse:
+    """Bulk-undo agent decisions, never overriding a later human decision."""
+
+    stats = agent_review_mod.revert_agent_actions(
+        settings.db_path,
+        agent=request.agent,
+        since=request.since,
+        reviewer="api",
+        note=request.note,
+    )
+    return RevertAgentResponse(
+        reverted=stats.reverted,
+        skipped=stats.skipped,
+        results=[RevertResponse(**r.as_dict()) for r in stats.results],
+    )
 
 
 def _require_object(conn: sqlite3.Connection, object_id: str) -> None:

@@ -376,6 +376,7 @@ def _apply_review(
     note: str,
     confirmed: bool,
     archive_freshness: bool = False,
+    force_export_status: str | None = None,
 ) -> bool:
     init_db(db_path)
     now = _utc_now()
@@ -403,7 +404,15 @@ def _apply_review(
                 updated_at=now,
             )
 
-        new_status = _OBJECT_STATUS_FOR.get(workflow_state)
+        # Normal review actions only pin the export status for the three states
+        # that map to it; revert passes ``force_export_status`` so it can also
+        # reset an object back to PROPOSED (un-exporting it) when undoing an
+        # approval back to an open review state.
+        new_status = (
+            force_export_status
+            if force_export_status is not None
+            else _OBJECT_STATUS_FOR.get(workflow_state)
+        )
         if new_status is not None:
             know_repo.set_object_status(conn, object_id, new_status, now)
 
@@ -517,11 +526,56 @@ def flag_object(
     )
 
 
+# Open review states are not exported, so reverting an object *to* one must reset
+# its consolidation status back to PROPOSED (the other three states map 1:1).
+_REVERT_OPEN_STATES = {
+    ReviewWorkflowState.PENDING_REVIEW.value,
+    ReviewWorkflowState.NEEDS_ATTENTION.value,
+}
+
+
+def apply_object_state(
+    db_path: str | Path,
+    object_id: str,
+    workflow_state: str,
+    *,
+    reviewer: str = "cli",
+    note: str = "",
+) -> bool:
+    """Set an object's review state to an explicit value, syncing export status.
+
+    Unlike :func:`approve_object` and friends (each of which targets one state),
+    this applies *any* workflow state and keeps the export status consistent —
+    including resetting to PROPOSED when the target is an open review state. It is
+    the building block the revert path uses to truly undo an approval.
+    """
+
+    if workflow_state not in {s.value for s in ReviewWorkflowState}:
+        raise ValueError(f"Unknown review workflow state: {workflow_state}")
+    export_status = (
+        "PROPOSED"
+        if workflow_state in _REVERT_OPEN_STATES
+        else _OBJECT_STATUS_FOR[workflow_state]
+    )
+    return _apply_review(
+        db_path,
+        object_id,
+        workflow_state,
+        reviewer=reviewer,
+        note=note,
+        confirmed=workflow_state == ReviewWorkflowState.APPROVED.value,
+        archive_freshness=workflow_state == ReviewWorkflowState.ARCHIVED.value,
+        force_export_status=export_status,
+    )
+
+
 __all__ = [
     "GovernanceScanStats",
     "run_scan",
     "approve_object",
+    "approve_objects_by_confidence",
     "archive_object",
     "reject_object",
     "flag_object",
+    "apply_object_state",
 ]

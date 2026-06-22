@@ -18,6 +18,7 @@ def add_mcp_parser(sub: argparse._SubParsersAction) -> None:
         help="run the Model Context Protocol grounding server (stdio)",
     )
     mcp.add_argument("--queries-dir", default="queries")
+    mcp.add_argument("--governance-config", default="config/governance.yml")
     mcp.add_argument(
         "--enable-graphrag",
         dest="enable_graphrag",
@@ -31,6 +32,16 @@ def add_mcp_parser(sub: argparse._SubParsersAction) -> None:
         help="disable the LLM-backed 'ask' tool (graph-only, fully offline)",
     )
     mcp.set_defaults(enable_graphrag=True)
+    mcp.add_argument(
+        "--enable-agent-review",
+        dest="enable_agent_review",
+        action="store_true",
+        help=(
+            "expose the policy-gated write tools (approve/flag); still bounded by "
+            "the agent_review policy in config/governance.yml (default: read-only)"
+        ),
+    )
+    mcp.set_defaults(enable_agent_review=False)
 
 
 def run_mcp(args) -> None:
@@ -42,7 +53,9 @@ def run_mcp(args) -> None:
         db_path=args.db,
         queries_dir=args.queries_dir,
         llm_config=args.llm_config,
+        governance_config=args.governance_config,
         enable_graphrag=args.enable_graphrag,
+        enable_agent_review=args.enable_agent_review,
     )
 
 

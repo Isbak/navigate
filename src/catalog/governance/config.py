@@ -50,12 +50,35 @@ class IngestionConfig:
 
 
 @dataclass(frozen=True)
+class AgentReviewConfig:
+    """Policy that bounds what an AI agent is allowed to auto-approve.
+
+    The agent never chooses its own identity or thresholds — they come from here,
+    so an in-loop model cannot widen its own authority. Every agent decision is
+    attributed to ``agent:<agent_name>`` and is reversible via ``governance
+    revert`` / ``revert-agent``.
+    """
+
+    enabled: bool = False
+    agent_name: str = "agent"
+    min_confidence: float = 0.85
+    max_confidence: float = 1.0
+    require_evidence: bool = True
+    # ``None`` means "no allowlist" (everything in the confidence window is
+    # eligible); a list restricts approval to those object types / predicates.
+    allowed_object_types: tuple[str, ...] | None = None
+    allowed_predicates: tuple[str, ...] | None = None
+    max_per_run: int = 100
+
+
+@dataclass(frozen=True)
 class GovernanceConfig:
     freshness: FreshnessConfig = field(default_factory=FreshnessConfig)
     review: ReviewConfig = field(default_factory=ReviewConfig)
     quality: QualityConfig = field(default_factory=QualityConfig)
     drift: DriftConfig = field(default_factory=DriftConfig)
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
+    agent_review: AgentReviewConfig = field(default_factory=AgentReviewConfig)
 
 
 def _section(data: dict, key: str) -> dict:
@@ -81,6 +104,7 @@ def load_governance_config(
     weights = _section(qc, "weights")
     dr = _section(data, "drift")
     ing = _section(data, "ingestion")
+    ar = _section(data, "agent_review")
 
     defaults = QualityConfig()
     return GovernanceConfig(
@@ -110,6 +134,31 @@ def load_governance_config(
             min_confidence_delta=float(dr.get("min_confidence_delta", 0.05)),
         ),
         ingestion=IngestionConfig(schedule=str(ing.get("schedule", "manual"))),
+        agent_review=_agent_review(ar),
+    )
+
+
+def _str_tuple(value: object) -> tuple[str, ...] | None:
+    """Coerce a YAML list (or null) into a tuple of strings; ``None`` -> no allowlist."""
+
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v) for v in value)
+    return (str(value),)
+
+
+def _agent_review(ar: dict) -> AgentReviewConfig:
+    defaults = AgentReviewConfig()
+    return AgentReviewConfig(
+        enabled=bool(ar.get("enabled", defaults.enabled)),
+        agent_name=str(ar.get("agent_name", defaults.agent_name)),
+        min_confidence=float(ar.get("min_confidence", defaults.min_confidence)),
+        max_confidence=float(ar.get("max_confidence", defaults.max_confidence)),
+        require_evidence=bool(ar.get("require_evidence", defaults.require_evidence)),
+        allowed_object_types=_str_tuple(ar.get("allowed_object_types")),
+        allowed_predicates=_str_tuple(ar.get("allowed_predicates")),
+        max_per_run=int(ar.get("max_per_run", defaults.max_per_run)),
     )
 
 
@@ -119,6 +168,7 @@ __all__ = [
     "QualityConfig",
     "DriftConfig",
     "IngestionConfig",
+    "AgentReviewConfig",
     "GovernanceConfig",
     "load_governance_config",
 ]

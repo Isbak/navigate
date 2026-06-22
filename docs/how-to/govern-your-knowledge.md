@@ -50,14 +50,43 @@ catalog governance owners               # ownership assignments
 catalog governance history <object>     # full provenance + change history of one object
 ```
 
-## 4. Export reports
+## 4. Let an agent approve the easy decisions (optional)
+
+For a large backlog, you can delegate the high-confidence, low-risk approvals to
+an agent while a human keeps control. `agent-approve` only touches `PROPOSED`
+items that fall inside the configured policy (confidence window, evidence
+required, optional type/predicate allowlists), capped per run. Every decision is
+tagged `agent:<name>` so it stays attributable — and reversible.
+
+```bash
+catalog governance agent-approve --dry-run                 # preview the candidates
+catalog governance agent-approve --target all --note "nightly pass"
+catalog governance agent-approve --target relationships --min-confidence 0.9
+```
+
+The policy lives in the `agent_review` block of `config/governance.yml`; `--agent`,
+`--min-confidence`, and `--max-confidence` override it for a single run. The same
+guard rails back the opt-in MCP write tools — see [the MCP guide](../mcp.md#write-tools-opt-in-policy-gated).
+
+**Undo.** Because agent decisions are tagged, a human can roll them back:
+
+```bash
+catalog governance revert <object-or-relationship-id>      # undo one decision
+catalog governance revert-agent --agent agent --since 2026-06-22  # undo a batch
+```
+
+`revert` restores the prior review state (recorded as a new, human-attributed
+audit event); `revert-agent` rolls back a whole batch by agent name / time window
+and **never overrides a decision a human made after the agent**.
+
+## 5. Export reports
 
 ```bash
 catalog governance export   # quality_report.json, governance_report.json,
                             # knowledge_health.json, change_log.json
 ```
 
-## 5. Run the whole pipeline on a cadence
+## 6. Run the whole pipeline on a cadence
 
 `governance ingest` runs `scan → extract → discover-links → consolidate →
 rdf-export → governance scan` on a schedule. A last-run marker drives the
@@ -123,3 +152,9 @@ audit trail (new/removed objects and relationships, confidence/ownership changes
 freshness transitions). Drift detection flags disappearing evidence, established
 objects vanishing, and terminology changes. Objects move through the review
 workflow `PENDING_REVIEW → NEEDS_ATTENTION → APPROVED → ARCHIVED → REJECTED`.
+
+**Agent vs human decisions.** Review actions carry a `reviewer` string. Human
+actions use `cli` / `api` / a person's name; agent actions use `agent:<name>`.
+They share the `APPROVED` state (an agent approval is a real approval), but the
+tag makes agent decisions filterable and lets `revert-agent` undo a batch without
+touching anything a human later decided.

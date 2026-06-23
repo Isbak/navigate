@@ -65,7 +65,16 @@ relationships — every item carrying a confidence, its provenance, and a
 catalog classify                          # classify all changed/new documents
 catalog classify --artifact-id doc_abc123 # one document
 catalog classify --force                  # reclassify everything
+catalog classify --workers 8              # classify documents concurrently
 ```
+
+The per-document LLM call is the dominant cost, so `--workers N` issues `N`
+classifications concurrently while all database writes stay on one thread —
+results match a serial run exactly. The default comes from
+`config/performance.yml` (`classify_workers`, default `4`; `0` = one per CPU).
+Because each call hits your LLM provider, raise the count only as far as your
+provider's rate limits allow — see
+[LLM optimization](../llm-optimization.md).
 
 Domains are discovered freely from each document, then de-noised so one dense
 standard does not explode into a dozen overlapping domains. `config/domains.yml`

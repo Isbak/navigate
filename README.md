@@ -47,6 +47,11 @@ catalog knowledge-stats  # inspect the result
 `config/llm.yml` (Claude, OpenAI, or a fully offline Ollama model). New here?
 Start with **[Catalog your files](docs/how-to/catalog-your-files.md)**.
 
+On a big corpus, `extract`, `discover-links`, and `classify` each take a
+`--workers N` flag to run independent items in parallel (DB writes stay
+single-threaded, so results are unchanged). Defaults live in
+`config/performance.yml`.
+
 ## The pipeline at a glance
 
 ```
@@ -96,6 +101,7 @@ to sensible defaults. Real API keys go in your shell environment or an ignored
 | `link_patterns.yml` | internal domains, system matching | [Discover and classify links](docs/how-to/discover-and-classify-links.md#4-optional-tell-navigate-which-domains-are-internal) |
 | `llm.yml` | provider, chunking, adaptive routing | [Build a knowledge graph](docs/how-to/build-a-knowledge-graph.md#1-configure-an-llm-provider) |
 | `pricing.yml` | token rates for cost reporting | [docs/llm-optimization.md](docs/llm-optimization.md) |
+| `performance.yml` | parallel worker counts for `extract` / `discover-links` / `classify` | [docs/llm-optimization.md](docs/llm-optimization.md#latency-concurrent-classification) |
 | `governance.yml` | freshness, quality, drift, cadence, agent-review policy | [Govern your knowledge](docs/how-to/govern-your-knowledge.md) |
 | `jena.yml` | Fuseki endpoint / dataset | [Publish to RDF and SPARQL](docs/how-to/publish-to-rdf-and-sparql.md) |
 | `compliance.yml` | control types, coverage, staleness | [docs/compliance.md](docs/compliance.md) |

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .compliance.cli import add_compliance_parser, run_compliance
-from .config import load_config
+from .config import load_config, load_performance_config, resolve_workers
 from .cost import record_calls
 from .cost import repository as cost_repo
 from .db import DatabaseNotWritableError, connect, init_db, latest_scan_run
@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--jena-config", default="config/jena.yml")
     parser.add_argument("--governance-config", default="config/governance.yml")
     parser.add_argument("--compliance-config", default="config/compliance.yml")
+    parser.add_argument("--performance-config", default="config/performance.yml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db")
@@ -115,9 +116,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="re-extract only artifacts whose path matches this glob, "
         "e.g. '*.pdf' or '**/eurocode*'",
     )
+    extract.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="parallel extraction workers (default from config/performance.yml; "
+        "0 = one per CPU)",
+    )
 
     discover = sub.add_parser("discover-links")
     discover.add_argument("--artifact-id", default=None)
+    discover.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="parallel link-resolution workers (default from "
+        "config/performance.yml; 0 = one per CPU)",
+    )
 
     sub.add_parser("link-stats")
 
@@ -136,6 +151,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="classify only this artifact id (repeatable)",
     )
     classify.add_argument("--force", action="store_true")
+    classify.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="parallel classification workers for concurrent LLM calls "
+        "(default from config/performance.yml; 0 = one per CPU)",
+    )
 
     sub.add_parser("classification-stats")
 
@@ -328,12 +350,15 @@ def _cmd_show_duplicates(args) -> None:
 def _cmd_extract(args) -> None:
     init_db(args.db)
     mode = args.mode or load_extraction_config(args.extract_config).mode
+    perf = load_performance_config(args.performance_config)
+    workers = resolve_workers(args.workers, perf.extract_workers)
     summary = extract_all(
         args.db,
         args.cache,
         mode=mode,
         artifact_ids=args.artifact_id,
         path_glob=args.path_glob,
+        workers=workers,
     )
     print(f"Extraction complete (mode: {mode}):")
     print(f"Artifacts processed: {_fmt(summary['artifacts_processed'])}")
@@ -343,11 +368,14 @@ def _cmd_extract(args) -> None:
 
 def _cmd_discover_links(args) -> None:
     config = load_link_config(args.link_config)
+    perf = load_performance_config(args.performance_config)
+    workers = resolve_workers(args.workers, perf.link_workers)
     stats = discover_links(
         db_path=args.db,
         cache_dir=args.cache,
         config=config,
         artifact_id=args.artifact_id,
+        workers=workers,
     )
     print("Link discovery complete:")
     print(f"Artifacts processed: {_fmt(stats.artifacts_processed)}")
@@ -472,6 +500,13 @@ def _cmd_classify(args) -> None:
             f"({completed}/{total}) {artifact_id}"
         )
 
+    perf = load_performance_config(args.performance_config)
+    workers = resolve_workers(args.workers, perf.classify_workers)
+    # A fresh router per worker thread keeps each provider's (mutable) usage
+    # state thread-local so concurrent token accounting stays correct.
+    def _router_factory():
+        return build_router(config, factory=build_provider)
+
     stats = classify_documents(
         db_path=args.db,
         cache_dir=args.cache,
@@ -483,7 +518,9 @@ def _cmd_classify(args) -> None:
         max_chunks=config.max_chunks,
         progress_callback=_show_progress,
         provider_name=config.provider,
-        router=router,
+        router=router if workers <= 1 else None,
+        router_factory=_router_factory if workers > 1 else None,
+        workers=workers,
     )
     print("Classification complete:")
     print(f"Documents processed: {_fmt(stats.documents_processed)}")

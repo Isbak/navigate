@@ -26,6 +26,7 @@ import fnmatch
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .code import detect_language, extract_structure
@@ -186,12 +187,28 @@ def _matches_glob(path: str, pattern: str) -> bool:
     return fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(Path(path).name, pattern)
 
 
+def _extract_one(row, cache_path: Path, mode: str) -> tuple[int, list[tuple[str, object]]]:
+    """Extract a single artifact into its cache dir (no DB access).
+
+    Returns ``(links_extracted, [(artifact_id, Usage), ...])``. Safe to run
+    concurrently: each call writes only to its own ``cache/<id>/`` directory and
+    accumulates vision-extraction usage in a private list.
+    """
+
+    usages: list = []
+    links = extract_to_cache(
+        _artifact_from_row(row), cache_path, mode, usage_sink=usages
+    )
+    return links, [(row["id"], usage) for usage in usages]
+
+
 def extract_all(
     db_path: str | Path = "data/catalog.sqlite",
     cache_dir: str | Path = "cache",
     mode: str = MODE_FAST,
     artifact_ids: list[str] | None = None,
     path_glob: str | None = None,
+    workers: int = 1,
 ) -> dict:
     """(Re)build the extraction cache for indexed, on-disk artifacts.
 
@@ -199,7 +216,11 @@ def extract_all(
     distinct id is extracted once. ``artifact_ids`` and/or ``path_glob`` narrow
     the run to a chosen subset (e.g. re-extract just the equation-heavy PDFs in
     ``high-quality`` mode); when both are ``None`` every artifact is processed.
-    Returns summary counters.
+
+    ``workers`` sets the size of the extraction thread pool. Each artifact is
+    independent (it writes only to its own cache dir and the loop never touches
+    the database), so the work is embarrassingly parallel; ``workers=1`` runs the
+    original serial path. Returns summary counters.
     """
 
     cache_path = Path(cache_dir)
@@ -217,6 +238,8 @@ def extract_all(
             "SELECT * FROM artifacts WHERE scan_status != 'DELETED'"
         ).fetchall()
 
+    # Pre-filter on the main thread so the worker function stays pure.
+    pending = []
     for row in rows:
         if row["id"] in seen_ids:
             continue
@@ -227,16 +250,30 @@ def extract_all(
         if not Path(row["path"]).exists():
             continue
         seen_ids.add(row["id"])
+        pending.append(row)
+
+    def _run(row):
         try:
-            usages: list = []
-            links_extracted += extract_to_cache(
-                _artifact_from_row(row), cache_path, mode, usage_sink=usages
-            )
-            collected_usage.extend((row["id"], usage) for usage in usages)
-            artifacts_processed += 1
-        except Exception:  # noqa: BLE001 - one bad file must not abort the batch
-            LOGGER.exception("Extraction failed for %s", row["path"])
+            links, usages = _extract_one(row, cache_path, mode)
+            return links, usages, None
+        except Exception as exc:  # noqa: BLE001 - one bad file must not abort the batch
+            return 0, [], (row["path"], exc)
+
+    if workers > 1 and len(pending) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = pool.map(_run, pending)
+    else:
+        results = (_run(row) for row in pending)
+
+    for links, usages, error in results:
+        if error is not None:
+            path, exc = error
+            LOGGER.error("Extraction failed for %s: %s", path, exc, exc_info=exc)
             errors += 1
+            continue
+        links_extracted += links
+        collected_usage.extend(usages)
+        artifacts_processed += 1
 
     _record_extraction_usage(db_path, collected_usage)
 

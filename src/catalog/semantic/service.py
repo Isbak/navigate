@@ -22,7 +22,9 @@ import dataclasses
 import hashlib
 import json
 import logging
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +35,7 @@ from ..db import connect, init_db
 from . import repository as repo
 from .code_prompts import build_code_classification_prompt
 from .domains import DomainTaxonomy, canonicalize_domains, load_domain_taxonomy
+from .models import ClassificationResult
 from .parser import (
     ParseError,
     merge_classification_results,
@@ -134,14 +137,18 @@ def _run_chunks(
     chunks: list[str],
     *,
     max_input_chars: int,
-    artifact_id: str,
-    ledger,
+    usage_sink: list,
     prompt_builder=build_classification_prompt,
 ):
     """Classify every chunk with ``provider`` and merge the per-chunk results.
 
     ``prompt_builder`` selects the prompt schema (document vs. source code); both
     builders share a signature so this loop is identical for either.
+
+    Per-chunk token usage is appended to ``usage_sink`` (the provider's
+    ``last_usage``, or ``None`` for backends that do not report it) rather than
+    written to the database, so this function is pure compute and safe to run off
+    the main thread. The caller prices and persists the collected usages.
     """
 
     total = len(chunks)
@@ -155,38 +162,79 @@ def _run_chunks(
             chunk_total=total,
         )
         raw = provider.generate(user, system=system)
-        ledger.record(provider, operation="classify", artifact_id=artifact_id)
+        usage_sink.append(getattr(provider, "last_usage", None))
         results.append(parse_classification_response(raw))
     return merge_classification_results(results)
 
 
-def _classify_one(
-    conn,
-    artifact_dir: Path,
+@dataclass
+class _WorkItem:
+    """One document to classify, prepared on the main thread (no DB access left)."""
+
+    artifact_dir: Path
+    text: str
+    source_hash: str
+    metadata: dict
+
+
+@dataclass
+class _ComputeResult:
+    """The LLM output for one document, ready to persist on the main thread."""
+
+    artifact_dir: Path
+    result: ClassificationResult
+    model: str
+    source_hash: str
+    usages: list
+
+
+def _prepare_work(
+    conn, artifact_dirs: list[Path], *, force: bool
+) -> tuple[list[_WorkItem], list[Path]]:
+    """Read inputs and apply the incremental skip on the main thread.
+
+    The skip check needs ``repo.get_source_hash`` (a DB read), so it runs here
+    rather than in a worker. Returns the documents that need classifying plus the
+    list of skipped (unchanged) artifact dirs.
+    """
+
+    items: list[_WorkItem] = []
+    skipped: list[Path] = []
+    for artifact_dir in artifact_dirs:
+        text = (artifact_dir / EXTRACTED_FILENAME).read_text(encoding="utf-8")
+        source_hash = _source_hash(text)
+        if not force:
+            existing = repo.get_source_hash(conn, artifact_dir.name)
+            if existing is not None and existing == source_hash:
+                LOGGER.debug("Skipping unchanged %s", artifact_dir.name)
+                skipped.append(artifact_dir)
+                continue
+        items.append(
+            _WorkItem(artifact_dir, text, source_hash, _read_metadata(artifact_dir))
+        )
+    return items, skipped
+
+
+def _classify_compute(
+    item: _WorkItem,
     router: ProviderRouter,
     *,
     max_input_chars: int,
     chunk_overlap: int,
     max_chunks: int,
-    force: bool,
-    now: str,
-    stats: ClassifyStats,
-    ledger,
     taxonomy: DomainTaxonomy,
-) -> None:
-    artifact_id = artifact_dir.name
-    text = (artifact_dir / EXTRACTED_FILENAME).read_text(encoding="utf-8")
-    source_hash = _source_hash(text)
+) -> _ComputeResult:
+    """Run all LLM work for one document. Pure compute - never touches the DB.
 
-    # Incremental skip: same extraction already classified, not forced.
-    if not force:
-        existing = repo.get_source_hash(conn, artifact_id)
-        if existing is not None and existing == source_hash:
-            stats.documents_skipped += 1
-            LOGGER.debug("Skipping unchanged %s", artifact_id)
-            return
+    This is the parallelizable half of classification: routing, chunked LLM
+    calls, escalation, code-structure merge and domain canonicalization. Token
+    usage is collected into the returned :class:`_ComputeResult` for the caller
+    to persist on the main thread.
+    """
 
-    metadata = _read_metadata(artifact_dir)
+    artifact_id = item.artifact_dir.name
+    text = item.text
+    metadata = item.metadata
 
     # Source files take the code-aware path: chunk along function/class
     # boundaries and classify with the code schema/prompt. Everything else keeps
@@ -203,13 +251,13 @@ def _classify_one(
     # so equations and content past the head of a long document are not lost.
     chunks = select_chunks(text, language, max_input_chars, chunk_overlap)[:chunk_cap]
     provider = decision.provider
+    usages: list = []
     result = _run_chunks(
         provider,
         metadata,
         chunks,
         max_input_chars=max_input_chars,
-        artifact_id=artifact_id,
-        ledger=ledger,
+        usage_sink=usages,
         prompt_builder=prompt_builder,
     )
 
@@ -228,8 +276,7 @@ def _classify_one(
             metadata,
             deep_chunks,
             max_input_chars=max_input_chars,
-            artifact_id=artifact_id,
-            ledger=ledger,
+            usage_sink=usages,
             prompt_builder=prompt_builder,
         )
 
@@ -247,15 +294,33 @@ def _classify_one(
     # the single-chunk and multi-chunk paths.
     result = dataclasses.replace(result, domains=canonicalize_domains(result.domains, taxonomy))
 
+    return _ComputeResult(
+        artifact_dir=item.artifact_dir,
+        result=result,
+        model=provider.model,
+        source_hash=item.source_hash,
+        usages=usages,
+    )
+
+
+def _persist_compute(conn, computed: _ComputeResult, *, now: str, stats: ClassifyStats, ledger) -> None:
+    """Persist one document's classification and its priced usage (main thread)."""
+
+    artifact_id = computed.artifact_dir.name
+    result = computed.result
+
     repo.delete_for_artifact(conn, artifact_id)
     repo.persist_classification(
         conn,
         artifact_id=artifact_id,
         result=result,
-        model=provider.model,
-        source_hash=source_hash,
+        model=computed.model,
+        source_hash=computed.source_hash,
         created_at=now,
     )
+    for usage in computed.usages:
+        if usage is not None:
+            ledger.record_usage(usage, operation="classify", artifact_id=artifact_id)
 
     stats.documents_processed += 1
     stats.entities += len(result.entities)
@@ -283,7 +348,9 @@ def classify_documents(
     provider_name: str | None = None,
     track_cost: bool = True,
     router: ProviderRouter | None = None,
+    router_factory: Callable[[], ProviderRouter] | None = None,
     taxonomy: DomainTaxonomy | None = None,
+    workers: int = 1,
 ) -> ClassifyStats:
     """Classify cached documents with ``provider`` and persist the results.
 
@@ -298,15 +365,54 @@ def classify_documents(
     ``router`` enables adaptive model routing: when given, it selects a fast or
     deep model per document (and may escalate uncertain results). When omitted,
     the single ``provider`` is used for every document - the original behaviour.
+
+    ``workers`` runs the per-document LLM calls concurrently (they are the
+    dominant, network-bound cost). All database writes stay on this thread, so
+    results are independent of worker count. Because a provider's ``last_usage``
+    is mutable per-instance state, concurrent runs need a ``router_factory`` so
+    each worker thread gets its own router/providers and token usage is
+    attributed correctly; without one the shared ``router`` is reused (fine for
+    backends that do not report usage, e.g. test stubs). ``workers=1`` runs the
+    original serial path.
     """
 
     cache_path = Path(cache_dir)
     init_db(db_path)
 
     if router is None:
-        router = single_provider_router(provider, max_chunks=max_chunks)
+        router = router_factory() if router_factory is not None else single_provider_router(
+            provider, max_chunks=max_chunks
+        )
     if taxonomy is None:
         taxonomy = load_domain_taxonomy()
+
+    # Each worker thread gets its own router (and thus its own provider
+    # instances) when a factory is available, so the mutable ``last_usage`` state
+    # is never shared across threads.
+    thread_local = threading.local()
+
+    def _worker_router() -> ProviderRouter:
+        if router_factory is None:
+            return router
+        local = getattr(thread_local, "router", None)
+        if local is None:
+            local = router_factory()
+            thread_local.router = local
+        return local
+
+    def _compute(item: _WorkItem):
+        try:
+            result = _classify_compute(
+                item,
+                _worker_router(),
+                max_input_chars=max_input_chars,
+                chunk_overlap=chunk_overlap,
+                max_chunks=max_chunks,
+                taxonomy=taxonomy,
+            )
+            return item, result, None
+        except Exception as exc:  # noqa: BLE001 - surfaced and counted on the main thread
+            return item, None, exc
 
     artifact_ids = _normalize_ids(artifact_id)
     started_at = _utc_now()
@@ -319,33 +425,47 @@ def classify_documents(
             ledger = NullUsageLedger()
         artifact_dirs = _artifact_dirs(cache_path, artifact_ids, _active_artifact_ids(conn))
         total_artifacts = len(artifact_dirs)
-        for index, artifact_dir in enumerate(artifact_dirs, start=1):
-            try:
-                _classify_one(
-                    conn,
-                    artifact_dir,
-                    router,
-                    max_input_chars=max_input_chars,
-                    chunk_overlap=chunk_overlap,
-                    max_chunks=max_chunks,
-                    force=force,
-                    now=started_at,
-                    stats=stats,
-                    ledger=ledger,
-                    taxonomy=taxonomy,
-                )
-                conn.commit()
-            except (LLMError, ParseError) as exc:
-                LOGGER.warning("Classification failed for %s: %s", artifact_dir.name, exc)
+        work, skipped = _prepare_work(conn, artifact_dirs, force=force)
+        stats.documents_skipped += len(skipped)
+
+        completed = 0
+        for artifact_dir in skipped:
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed, total_artifacts, artifact_dir.name)
+
+        # Compute the LLM work (optionally in parallel), then persist each result
+        # on this thread. pool.map preserves input order, so persistence is
+        # deterministic regardless of worker count.
+        if workers > 1 and len(work) > 1:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                computed = pool.map(_compute, work)
+        else:
+            computed = (_compute(item) for item in work)
+
+        for item, result, exc in computed:
+            completed += 1
+            if exc is not None:
+                if isinstance(exc, (LLMError, ParseError)):
+                    LOGGER.warning(
+                        "Classification failed for %s: %s", item.artifact_dir.name, exc
+                    )
+                else:
+                    LOGGER.error(
+                        "Unexpected classification error for %s",
+                        item.artifact_dir, exc_info=exc,
+                    )
                 stats.errors += 1
-                conn.rollback()
-            except Exception:  # noqa: BLE001 - one bad document must not abort the run
-                LOGGER.exception("Unexpected classification error for %s", artifact_dir)
-                stats.errors += 1
-                conn.rollback()
-            finally:
-                if progress_callback is not None:
-                    progress_callback(index, total_artifacts, artifact_dir.name)
+            else:
+                try:
+                    _persist_compute(conn, result, now=started_at, stats=stats, ledger=ledger)
+                    conn.commit()
+                except Exception:  # noqa: BLE001 - one bad document must not abort the run
+                    LOGGER.exception("Failed to persist classification for %s", item.artifact_dir)
+                    stats.errors += 1
+                    conn.rollback()
+            if progress_callback is not None:
+                progress_callback(completed, total_artifacts, item.artifact_dir.name)
 
         completed_at = _utc_now()
         repo.record_classification_run(

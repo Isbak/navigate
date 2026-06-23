@@ -47,3 +47,21 @@ down the "Build the graph" rows — that is the core pipeline end to end.
 | Ground an AI coding agent in my codebase | [Ground an AI agent in your code](ground-an-ai-agent-in-your-code.md) |
 | Expose the platform over MCP tools | [docs/mcp.md](../mcp.md) |
 | Consume the platform over a REST API | [docs/navigate-api.md](../navigate-api.md) |
+
+## Troubleshooting
+
+Something not working? Run the built-in health check first:
+
+```bash
+catalog doctor            # OK/WARN/FAIL report across your whole setup
+catalog doctor --strict   # exit non-zero on warnings too (useful in CI)
+catalog doctor --json     # machine-readable report
+```
+
+`doctor` verifies that your `config/*.yml` files parse, the database connects and
+is writable, the cache directory is usable, the active LLM provider's API key is
+set, the Fuseki endpoint is reachable (only needed for `fuseki-load` /
+`fuseki-clear`), and that the API isn't about to bind to all interfaces without
+an API key. Each check reports `OK`, `WARN`, or `FAIL`; see `catalog doctor
+--help`. For API exposure specifically, see
+[the API security notes](../navigate-api.md#security).

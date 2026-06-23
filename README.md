@@ -47,6 +47,10 @@ catalog knowledge-stats  # inspect the result
 `config/llm.yml` (Claude, OpenAI, or a fully offline Ollama model). New here?
 Start with **[Catalog your files](docs/how-to/catalog-your-files.md)**.
 
+Run `catalog doctor` at any point to check your setup — it verifies config files,
+the database, the cache, LLM API keys, the Fuseki endpoint, and filesystem
+permissions, and warns about insecure API binds. See `catalog doctor --help`.
+
 On a big corpus, `extract`, `discover-links`, and `classify` each take a
 `--workers N` flag to run independent items in parallel (DB writes stay
 single-threaded, so results are unchanged). Defaults live in
@@ -87,6 +91,7 @@ Task-oriented recipes live under **[`docs/how-to/`](docs/how-to/README.md)**.
 | Ground an AI coding agent in my codebase | [Ground an AI agent in your code](docs/how-to/ground-an-ai-agent-in-your-code.md) |
 | Index a code repository | [docs/code-indexing.md](docs/code-indexing.md) |
 | Assess compliance against standards and find gaps | [docs/compliance.md](docs/compliance.md) |
+| Diagnose a broken or misconfigured setup | `catalog doctor` ([troubleshooting](docs/how-to/README.md#troubleshooting)) |
 
 ## Configuration
 
@@ -123,7 +128,11 @@ to sensible defaults. Real API keys go in your shell environment or an ignored
   [Ground an AI agent in your code](docs/how-to/ground-an-ai-agent-in-your-code.md).
 - **Docker** — a `Dockerfile` and `docker-compose.yml` package the API and an
   optional Apache Jena Fuseki triplestore (`docker compose up --build api`,
-  `docker compose up -d fuseki`).
+  `docker compose up -d fuseki`). The container binds the API to `0.0.0.0`;
+  `docker-compose.yml` publishes it to `127.0.0.1` only. If you expose it beyond
+  loopback, enable an API key first — the server prints a security warning on
+  start when it binds to all interfaces without one. See
+  [docs/navigate-api.md](docs/navigate-api.md#security).
 
 ## Reference docs
 

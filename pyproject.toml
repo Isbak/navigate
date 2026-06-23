@@ -118,3 +118,18 @@ files = ["src"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+
+# Gradual per-module typing gate. Modules listed here are held to a stricter
+# standard and are enforced in CI (see the "Mypy (gated modules)" step in
+# .github/workflows/ci.yml); the rest of the tree stays advisory. Promote a
+# module by adding it here once it type-checks cleanly.
+[[tool.mypy.overrides]]
+module = [
+  "catalog.commands.*",
+  "catalog.api.server",
+  "catalog.api.config",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true

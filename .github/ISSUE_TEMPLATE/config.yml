@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How-to guides
+    url: https://github.com/isbak/navigate/tree/main/docs/how-to
+    about: Task-oriented guides for cataloguing, linking, the knowledge graph, GraphRAG, governance, RDF and the API.
+  - name: Roadmap
+    url: https://github.com/isbak/navigate/blob/main/ROADMAP.md
+    about: What's planned next, grouped by area (security, ux, graph, governance, performance).

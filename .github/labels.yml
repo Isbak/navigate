@@ -1,0 +1,25 @@
+# Issue/PR labels for the Navigate roadmap.
+#
+# These are the canonical roadmap labels referenced by ROADMAP.md and the issue
+# templates. Sync them to GitHub with a labeler action or the gh CLI, e.g.:
+#   gh label create security --color B60205 --description "..." --force
+
+- name: security
+  color: "B60205"
+  description: "Authentication, secrets, network exposure, data protection"
+
+- name: ux
+  color: "0E8A16"
+  description: "CLI/API ergonomics, output, docs, onboarding"
+
+- name: graph
+  color: "1D76DB"
+  description: "Knowledge graph, exploration, RDF/SPARQL"
+
+- name: governance
+  color: "5319E7"
+  description: "Review workflows, ownership, freshness, audit"
+
+- name: performance
+  color: "FBCA04"
+  description: "Throughput, scaling, caching, type/quality gates"

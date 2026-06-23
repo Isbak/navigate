@@ -29,10 +29,17 @@ jobs:
         run: ruff check .
 
       # Advisory while the existing type-annotation findings are burned down;
-      # it reports issues without blocking the build. Promote to a gate once the
-      # baseline is clean.
+      # it reports issues without blocking the build. Promote modules to the
+      # gated step below as they are cleaned up.
       - name: Mypy (advisory)
         run: mypy || true
+
+      # Enforced gate for the cleaned-up modules. These are held to the stricter
+      # config in pyproject.toml ([[tool.mypy.overrides]]); --follow-imports=silent
+      # type-checks against (but does not report errors in) the still-advisory
+      # dependencies. Add modules here as they are promoted.
+      - name: Mypy (gated modules)
+        run: mypy --follow-imports=silent src/catalog/commands src/catalog/api/server.py src/catalog/api/config.py
 
   test:
     runs-on: ubuntu-latest

@@ -38,7 +38,9 @@ def _write_cache(cache_dir, artifact_id, text, filename):
 
 
 def _classify(tmp_path, monkeypatch):
-    monkeypatch.setattr("catalog.cli.build_provider", lambda cfg: StubProvider("stub-model"))
+    monkeypatch.setattr(
+        "catalog.commands.semantic.build_provider", lambda cfg: StubProvider("stub-model")
+    )
     _write_cache(tmp_path / "cache", "doc_gov", "release governance", "gov.pptx")
     assert main(_base_args(tmp_path) + ["classify"]) == 0
 

@@ -21,6 +21,41 @@ the live OpenAPI schema served at `/openapi.json`; it does not duplicate them.
   `POST /api/ask` returns `501` until GraphRAG is enabled. Treat a `501` from
   `ask` as "feature off", not "broken".
 
+## Security
+
+The API is local-first and ships with safe defaults: it binds to `127.0.0.1`,
+requires no API key, and makes no external calls. Two settings in
+`config/api.yml` control exposure:
+
+- `host` — the bind address. `127.0.0.1` (default) is reachable only from the
+  same machine. A wildcard such as `0.0.0.0` exposes the API on every network
+  interface.
+- `require_api_key` + `api_key_env` — when `require_api_key: true`, every `/api`
+  request must send `Authorization: Bearer <token>` matching the value of the
+  environment variable named by `api_key_env` (default `NAVIGATE_API_KEY`).
+
+**Insecure-bind warning.** Binding to a wildcard host without an API key means
+anyone who can reach the host can read and modify your knowledge base. When this
+combination is detected, `catalog api` prints a `SECURITY WARNING` to stderr at
+start-up, and `catalog doctor` reports it as a warning. To bind beyond loopback
+safely:
+
+```yaml
+# config/api.yml
+host: "0.0.0.0"
+require_api_key: true
+api_key_env: NAVIGATE_API_KEY
+```
+
+```bash
+export NAVIGATE_API_KEY="$(openssl rand -hex 32)"
+catalog api --host 0.0.0.0
+```
+
+The bundled `docker-compose.yml` keeps you safe by default: the container binds
+to `0.0.0.0` internally but the compose file publishes the port to `127.0.0.1`
+only. If you change that mapping, enable an API key first.
+
 ## Closing the gaps
 
 Earlier, four things a dashboard UI wants were not part of the projection, and

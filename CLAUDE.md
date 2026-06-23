@@ -32,6 +32,7 @@ Command area → doc to update:
 | `mcp`, code-aware indexing (`index_code`) | `docs/how-to/ground-an-ai-agent-in-your-code.md` (+ `docs/code-indexing.md`, `docs/mcp.md`) |
 | `compliance *` | `docs/compliance.md` |
 | `api` / REST endpoints | `docs/navigate-api.md` |
+| `doctor` | `docs/how-to/README.md` (Troubleshooting) |
 | `cost-report`, LLM routing/caching | `docs/llm-optimization.md` |
 
 If a change spans several areas (e.g. a new pipeline stage), also update the
@@ -44,5 +45,14 @@ table.
 pytest                    # tests (quiet; config in pyproject.toml)
 ruff check .              # lint (enforced in CI)
 ruff format .             # format (not gated yet)
-mypy                      # advisory in CI
+mypy                      # advisory in CI (whole tree)
+# Gated in CI: cleaned-up modules are type-checked strictly. Keep this green:
+mypy --follow-imports=silent src/catalog/commands src/catalog/api/server.py src/catalog/api/config.py
 ```
+
+The CLI is split into command modules under `src/catalog/commands/` (one module
+per domain, each exposing `register(sub)` and attaching handlers via
+`set_defaults(func=...)`); `src/catalog/cli.py` is just wiring. New commands go in
+the matching module (or a new one registered in `commands/__init__.py`), not in
+`cli.py`. As modules are typed cleanly, add them to the `[[tool.mypy.overrides]]`
+list in `pyproject.toml` and the gated mypy step in `.github/workflows/ci.yml`.

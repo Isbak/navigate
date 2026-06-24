@@ -225,6 +225,9 @@ cache/*
 !cache/.gitkeep
 !data/.gitkeep
 
+# Connector cache: remote content downloaded locally; regenerable by re-syncing
+connector_cache/
+
 # Link export output
 exports/
 

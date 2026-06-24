@@ -77,6 +77,53 @@ changed supported files after a debounce delay:
 catalog watch
 ```
 
+## 6. (Optional) Sync cloud connectors
+
+Pull content from Google Drive, GitHub repos, SharePoint/OneDrive, Confluence,
+or Jira/Azure DevOps directly into the catalog — no manual downloads needed.
+Downloaded files land in `connector_cache/` and flow through the same
+extract → classify → consolidate pipeline as local files.
+
+**Quick start:**
+
+1. Edit `config/connectors.yml` (a commented template is provided) and uncomment
+   the connector(s) you want. Set credentials via environment variables:
+
+   ```bash
+   export GITHUB_TOKEN=ghp_…
+   ```
+
+2. Sync:
+
+   ```bash
+   catalog connector list              # verify what's configured
+   catalog connector sync              # sync all enabled connectors
+   catalog connector sync eng-repos    # sync one connector by name
+   catalog connector sync --dry-run    # preview without downloading
+   catalog connector status            # per-connector file counts
+   ```
+
+3. Process new content normally:
+
+   ```bash
+   catalog extract && catalog classify
+   ```
+
+**Supported sources:**
+
+| Type | `type:` value | Auth |
+|---|---|---|
+| GitHub repos | `github` | PAT (`GITHUB_TOKEN`) |
+| Google Drive | `google_drive` | Service-account JSON key |
+| SharePoint / OneDrive | `sharepoint` | Entra ID client credentials |
+| Confluence | `confluence` | Atlassian API token |
+| Jira | `jira` | Atlassian API token |
+| Azure DevOps | `azure_devops` | PAT |
+
+> **Note:** `connector_cache/` is gitignored. The `connector_file_map` table in
+> the database tracks which remote items have been downloaded, enabling
+> incremental re-syncs that only fetch new or changed content.
+
 ## Next step
 
 Your files are indexed. Continue with

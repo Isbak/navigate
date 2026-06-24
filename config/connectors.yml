@@ -1,0 +1,95 @@
+# Connector configuration for external content sources.
+#
+# Each connector downloads remote files into connector_cache/<name>/ so the
+# existing extract → classify → consolidate pipeline can process them without
+# any extra wiring. Run `catalog connector sync` to pull in new content.
+#
+# Credentials: use ${ENV_VAR} placeholders for secrets — the values are
+# interpolated from environment variables at runtime, not stored in this file.
+#
+# After editing, verify with: catalog connector list
+
+# Local directory where downloaded files are cached (relative to project root).
+# Add connector_cache/ to .gitignore (already done by default).
+cache_dir: connector_cache
+
+connectors:
+  # ─── GitHub repos ──────────────────────────────────────────────────────────
+  # Syncs Markdown and source-code files from one or more repositories.
+  # Requires a PAT with `repo` (private) or `public_repo` (public) scope.
+  #
+  # - name: eng-repos
+  #   type: github
+  #   credentials:
+  #     token: "${GITHUB_TOKEN}"
+  #   repos:
+  #     - owner/repo1
+  #     - owner/repo2
+  #   branches: [main]
+  #   # Optional: limit to specific extensions (default: all supported types)
+  #   # file_types: [md, py, ts, go]
+
+  # ─── Google Drive ───────────────────────────────────────────────────────────
+  # Syncs files from Drive folders. Uses a service-account JSON key file;
+  # no google-auth package needed (JWT signed with the built-in cryptography lib).
+  # Grant the service account "Viewer" access to the target folders.
+  #
+  # - name: team-drive
+  #   type: google_drive
+  #   credentials:
+  #     service_account_file: ~/.config/navigate/gdrive-sa.json
+  #   folders:
+  #     - id: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74"   # folder ID from Drive URL
+  #   # Google Docs → DOCX, Sheets → XLSX, Slides → PPTX automatically.
+
+  # ─── SharePoint / OneDrive ─────────────────────────────────────────────────
+  # Uses Microsoft Graph API with client-credentials OAuth2.
+  # Register an Entra ID (AAD) app with Sites.Read.All permission.
+  #
+  # - name: intranet
+  #   type: sharepoint
+  #   credentials:
+  #     tenant_id: "${SP_TENANT_ID}"
+  #     client_id: "${SP_CLIENT_ID}"
+  #     client_secret: "${SP_SECRET}"
+  #   sites:
+  #     - url: "https://company.sharepoint.com/sites/IT"
+
+  # ─── Confluence ────────────────────────────────────────────────────────────
+  # Exports pages from Confluence spaces as Markdown. Requires an Atlassian
+  # API token: https://id.atlassian.com/manage-profile/security/api-tokens
+  #
+  # - name: wiki
+  #   type: confluence
+  #   credentials:
+  #     url: "https://company.atlassian.net"
+  #     email: "user@company.com"
+  #     api_token: "${CONFLUENCE_TOKEN}"
+  #   spaces: [ENG, DOC, HR]
+
+  # ─── Jira ──────────────────────────────────────────────────────────────────
+  # Exports issues from Jira projects as Markdown files. Uses the same
+  # Atlassian API token as Confluence.
+  #
+  # - name: issues
+  #   type: jira
+  #   credentials:
+  #     url: "https://company.atlassian.net"
+  #     email: "user@company.com"
+  #     api_token: "${JIRA_TOKEN}"
+  #   projects: [ENG, PLAT]
+  #   # Optional: filter by issue type
+  #   # issue_types: [Bug, Story, Task, Epic]
+
+  # ─── Azure DevOps ──────────────────────────────────────────────────────────
+  # Exports work items from Azure DevOps projects as Markdown files.
+  # Requires a PAT with Work Items (Read) scope.
+  #
+  # - name: work-items
+  #   type: azure_devops
+  #   credentials:
+  #     organization: "myorg"
+  #     token: "${ADO_TOKEN}"
+  #   projects: [MyProject]
+  #   # Optional: filter by work item type
+  #   # work_item_types: ["Bug", "User Story", "Task"]

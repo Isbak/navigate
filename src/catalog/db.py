@@ -539,6 +539,25 @@ CREATE TABLE IF NOT EXISTS jobs(
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_type ON jobs(job_type);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+-- ---------------------------------------------------------------------------
+-- Connector sync tracking.
+--
+-- Maps each remote item (identified by connector_name + remote_id) to the
+-- local cache path where its content was downloaded and the remote version
+-- indicator used for change detection (ISO timestamp or content SHA depending
+-- on the source system). Rows survive init_db rebuilds because re-downloading
+-- every file is expensive; a re-sync after a schema change recovers any lost
+-- entries automatically.
+CREATE TABLE IF NOT EXISTS connector_file_map(
+  connector_name     TEXT NOT NULL,
+  remote_id          TEXT NOT NULL,
+  local_path         TEXT NOT NULL,
+  remote_modified_at TEXT NOT NULL,
+  synced_at          TEXT NOT NULL,
+  PRIMARY KEY (connector_name, remote_id)
+);
+CREATE INDEX IF NOT EXISTS idx_connector_file_map_path ON connector_file_map(local_path);
+CREATE INDEX IF NOT EXISTS idx_connector_file_map_name ON connector_file_map(connector_name);
 """
 
 # Columns expected on a current ``artifacts`` table; a mismatch triggers a

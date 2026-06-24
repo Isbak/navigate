@@ -16,6 +16,7 @@ import sys
 from .commands import register_all
 from .commands._common import configure_logging
 from .compliance.cli import add_compliance_parser, run_compliance
+from .connectors.cli import add_connector_parser, run_connector
 from .db import DatabaseNotWritableError
 from .governance.cli import add_governance_parser, run_governance
 from .graph.cli import add_graph_parser, run_graph
@@ -34,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--jena-config", default="config/jena.yml")
     parser.add_argument("--governance-config", default="config/governance.yml")
     parser.add_argument("--compliance-config", default="config/compliance.yml")
+    parser.add_argument("--connector-config", default="config/connectors.yml")
     parser.add_argument("--performance-config", default="config/performance.yml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -46,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_graphrag_parsers(sub)
     add_governance_parser(sub)
     add_compliance_parser(sub)
+    add_connector_parser(sub)
     add_mcp_parser(sub)
 
     return parser
@@ -79,6 +82,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         run_compliance(args)
     elif args.command == "mcp":
         run_mcp(args)
+    elif args.command == "connector":
+        run_connector(args)
     elif args.command in {"ask", "explain", "impact", "compare", "path-reason"}:
         run_graphrag(args)
     return 0

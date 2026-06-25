@@ -38,7 +38,7 @@ from .resolution import (
     normalize_name,
     similarity,
 )
-from .scope import expand_source_roots, in_scope_artifact_ids
+from .scope import expand_source_roots, in_scope_artifact_ids, live_artifact_ids
 from .scoring import ScoringConfig, ScoringInputs, score_object
 
 LOGGER = logging.getLogger(__name__)
@@ -631,12 +631,14 @@ def consolidate(
         else:
             repo.clear_all(conn)
 
-        # Restrict to the configured source folders (None = no scoping).
-        allowed_ids: set[str] | None = None
+        # Restrict to the configured source folders; always exclude DELETED
+        # artifacts even when no folder scoping is requested (--all-sources).
         if source_paths is not None:
-            allowed_ids = in_scope_artifact_ids(
+            allowed_ids: set[str] = in_scope_artifact_ids(
                 conn, expand_source_roots(source_paths)
             )
+        else:
+            allowed_ids = live_artifact_ids(conn)
 
         # Phase 1: gather.
         mentions = repo.gather_mentions(

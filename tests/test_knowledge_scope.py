@@ -3,12 +3,16 @@
 ``in_scope_artifact_ids`` decides which artifacts consolidation may consider: a
 document is in scope when it lives (non-DELETED) under a configured source root,
 or when it is a curated import with no ``artifacts`` row at all.
+
+``live_artifact_ids`` is the unscoped counterpart: every non-DELETED artifact
+plus curated imports, used by unscoped consolidation so that DELETED artifacts
+are always excluded.
 """
 
 from pathlib import Path
 
 from catalog.db import connect, init_db
-from catalog.knowledge.scope import expand_source_roots, in_scope_artifact_ids
+from catalog.knowledge.scope import expand_source_roots, in_scope_artifact_ids, live_artifact_ids
 
 
 def _insert_artifact(conn, *, path, artifact_id, scan_status="UNCHANGED"):
@@ -107,3 +111,48 @@ def test_sibling_prefix_does_not_match(tmp_path):
         conn.commit()
         allowed = in_scope_artifact_ids(conn, expand_source_roots([str(root)]))
     assert "doc_sibling" not in allowed
+
+
+# -- live_artifact_ids ---------------------------------------------------------
+
+def test_live_artifact_ids_excludes_deleted(tmp_path):
+    db = tmp_path / "c.sqlite"
+    init_db(db)
+    src = tmp_path / "src"
+    src.mkdir()
+    with connect(db) as conn:
+        _insert_artifact(conn, path=src / "live.txt", artifact_id="doc_live")
+        _insert_artifact(
+            conn, path=src / "gone.txt", artifact_id="doc_gone", scan_status="DELETED"
+        )
+        conn.commit()
+        allowed = live_artifact_ids(conn)
+    assert "doc_live" in allowed
+    assert "doc_gone" not in allowed
+
+
+def test_live_artifact_ids_includes_curated_imports(tmp_path):
+    db = tmp_path / "c.sqlite"
+    init_db(db)
+    with connect(db) as conn:
+        _seed_candidate(conn, "import_iso27001")
+        conn.commit()
+        allowed = live_artifact_ids(conn)
+    assert "import_iso27001" in allowed
+
+
+def test_live_artifact_ids_ignores_root_filter(tmp_path):
+    """All non-DELETED ids are returned regardless of which folder they live in."""
+    db = tmp_path / "c.sqlite"
+    init_db(db)
+    inside = tmp_path / "inside"
+    outside = tmp_path / "outside"
+    inside.mkdir()
+    outside.mkdir()
+    with connect(db) as conn:
+        _insert_artifact(conn, path=inside / "a.txt", artifact_id="doc_inside")
+        _insert_artifact(conn, path=outside / "b.txt", artifact_id="doc_outside")
+        conn.commit()
+        allowed = live_artifact_ids(conn)
+    assert "doc_inside" in allowed
+    assert "doc_outside" in allowed

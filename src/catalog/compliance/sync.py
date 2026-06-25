@@ -26,6 +26,17 @@ from . import repository as repo
 def sync_requirements(conn: sqlite3.Connection, now: str) -> int:
     """Populate compliance metadata from candidate requirements. Returns count."""
 
+    # Remove compliance metadata whose knowledge objects were dropped by the
+    # most-recent consolidation (e.g. because the source artifact was deleted).
+    conn.execute(
+        "DELETE FROM compliance_requirements"
+        " WHERE object_id NOT IN (SELECT id FROM knowledge_objects)"
+    )
+    conn.execute(
+        "DELETE FROM compliance_standards"
+        " WHERE object_id NOT IN (SELECT id FROM knowledge_objects)"
+    )
+
     existing = repo.existing_object_ids(conn)
     rows = conn.execute(
         """
@@ -93,6 +104,11 @@ def sync_equations(conn: sqlite3.Connection, now: str) -> int:
     enriched ``compliance_equations`` row (linking it to its Standard and, when
     the clause matches, the Requirement that specifies it). Returns the count.
     """
+
+    conn.execute(
+        "DELETE FROM compliance_equations"
+        " WHERE object_id NOT IN (SELECT id FROM knowledge_objects)"
+    )
 
     existing = repo.existing_object_ids(conn)
     rows = conn.execute(

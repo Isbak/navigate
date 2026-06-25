@@ -71,6 +71,48 @@ def build_server(settings: McpSettings) -> Any:
         return tools.evidence_for_object(settings, object_id)
 
     @server.tool()
+    def graph_schema() -> dict:
+        """Return the types and predicates that exist in the knowledge graph.
+
+        Use this first to discover what kinds of objects and relationships the
+        graph contains before searching or traversing. Returns ``types`` (each with
+        a ``count``), ``predicates``, and total ``node_count`` / ``edge_count``.
+        """
+        return tools.graph_schema(settings)
+
+    @server.tool()
+    def list_objects(type_filter: str = "", limit: int = 50, offset: int = 0) -> dict:
+        """List approved knowledge objects, optionally filtered by type.
+
+        Pass a ``type_filter`` (e.g. ``"Capability"``, ``"Decision"``) to enumerate
+        objects within a domain.  Use ``limit`` and ``offset`` to page through large
+        result sets.  Each object carries ``id``, ``label``, ``type``, and
+        ``confidence``.
+        """
+        return tools.list_objects(settings, type_filter, limit, offset)
+
+    @server.tool()
+    def domains() -> dict:
+        """Return a summary of each knowledge domain (object type).
+
+        For every type in the graph, reports ``object_count``,
+        ``relationship_count``, and the top 5 most-central nodes by degree.
+        Useful for sizing the graph and identifying the best entry points.
+        """
+        return tools.domains(settings)
+
+    @server.tool()
+    def get_subgraph(object_id: str, depth: int = 2) -> dict:
+        """Return all nodes and edges within *depth* hops of an object.
+
+        Replaces multiple sequential ``neighbors`` calls when an agent needs to
+        reason over a neighbourhood at once.  ``depth`` is capped at 4 to keep
+        responses manageable.  Returns ``nodes`` and ``edges`` lists alongside
+        the root object's ``label``.
+        """
+        return tools.get_subgraph(settings, object_id, depth)
+
+    @server.tool()
     def ask(question: str, depth: int = 2) -> dict:
         """Answer a natural-language question over the approved knowledge graph.
 

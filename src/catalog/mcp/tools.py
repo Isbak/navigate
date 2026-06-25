@@ -170,6 +170,68 @@ def evidence_for_object(settings: McpSettings, object_id: str) -> dict:
     return {"found": True, "object_id": resolved, "count": len(items), "evidence": items}
 
 
+# -- discovery and batch-traversal tools (offline, no LLM) -------------------
+
+def graph_schema(settings: McpSettings) -> dict:
+    """Types and predicates present in the graph — the agent's starting map."""
+
+    graph = network.build_digraph(_client(settings))
+    types = network.object_types(graph)
+    predicates = sorted({d["predicate"] for _, _, d in graph.edges(data=True)})
+    return {
+        "node_count": graph.number_of_nodes(),
+        "edge_count": graph.number_of_edges(),
+        "types": types,
+        "predicates": predicates,
+    }
+
+
+def list_objects(
+    settings: McpSettings,
+    type_filter: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Paginated object list, optionally filtered by type."""
+
+    graph = network.build_digraph(_client(settings))
+    all_nodes = network.nodes_by_type(graph, type_filter or None)
+    page = all_nodes[offset : offset + limit]
+    return {
+        "total": len(all_nodes),
+        "limit": limit,
+        "offset": offset,
+        "type_filter": type_filter or None,
+        "objects": page,
+    }
+
+
+def domains(settings: McpSettings) -> dict:
+    """Knowledge domain overview: per-type object counts and most central nodes."""
+
+    from ..graph.domains import analyze_domains
+
+    return {"domains": analyze_domains(_client(settings))}
+
+
+def get_subgraph(settings: McpSettings, object_id: str, depth: int = 2) -> dict:
+    """All nodes and edges within *depth* hops of an object (batch neighbourhood)."""
+
+    client = _client(settings)
+    resolved, graph, candidates = _resolve(client, object_id)
+    if resolved is None:
+        return _unresolved(object_id, candidates)
+    depth = max(1, min(depth, 4))
+    sub = network.ego_subgraph(graph, resolved, depth)
+    return {
+        "found": True,
+        "object_id": resolved,
+        "label": network.label_of(graph, resolved),
+        "depth": depth,
+        **(sub or {}),
+    }
+
+
 # -- LLM-backed tool (gated, graceful decline) --------------------------------
 
 def ask(settings: McpSettings, question: str, depth: int = 2) -> dict:
@@ -316,6 +378,10 @@ __all__ = [
     "impact",
     "find_path",
     "evidence_for_object",
+    "graph_schema",
+    "list_objects",
+    "domains",
+    "get_subgraph",
     "ask",
     "approve_object",
     "approve_relationship",

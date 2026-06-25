@@ -271,7 +271,7 @@ def test_extract_path_glob_scopes_to_matching_files(tmp_path, capsys):
 
     assert main(base + ["extract", "--path-glob", "*a.txt"]) == 0
     out = capsys.readouterr().out
-    assert "mode: fast" in out
+    assert "mode: high-quality" in out
     assert "Artifacts processed: 1" in out
 
 

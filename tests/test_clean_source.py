@@ -192,48 +192,55 @@ def _seed_requirement(conn, artifact_id, standard_name, clause_ref, text):
     )
 
 
-def test_purge_removes_compliance_metadata(tmp_path):
-    """Compliance metadata rows are cleaned up after purge + reconsolidate."""
+def test_purge_removes_all_derived_data(tmp_path):
+    """Full end-to-end: every layer of derived data is gone after purge + reconsolidate."""
     db = tmp_path / "catalog.sqlite"
     cache = tmp_path / "cache"
     folder = tmp_path / "docs"
     folder.mkdir()
+    (cache / "doc_pol").mkdir(parents=True)
+    (cache / "doc_pol" / "extracted.txt").write_text("x", encoding="utf-8")
     cfg = _write_config(tmp_path)  # empty sources → scoped reconsolidate keeps nothing
 
     init_db(db)
     with connect(db) as conn:
         _insert_artifact(conn, path=folder / "policy.txt", artifact_id="doc_pol")
         _seed_requirement(conn, "doc_pol", "ISO 27001", "A.9.1", "Access control")
+        _seed_capability(conn, "doc_pol", "Access Management")
+        _seed_link(conn, "doc_pol")
         conn.commit()
 
-    # Consolidate first so knowledge objects + compliance metadata are created.
+    # Consolidate so knowledge objects, relationships, and compliance metadata exist.
     consolidate(db, source_paths=None)
     with connect(db) as conn:
         assert repo.get_object(conn, "standard_iso_27001") is not None
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM compliance_standards WHERE object_id='standard_iso_27001'"
-            ).fetchone()[0]
-            == 1
-        )
-        assert (
-            conn.execute("SELECT COUNT(*) FROM compliance_requirements").fetchone()[0] > 0
-        )
+        assert conn.execute("SELECT COUNT(*) FROM knowledge_relationships").fetchone()[0] > 0
+        assert conn.execute("SELECT COUNT(*) FROM compliance_standards").fetchone()[0] > 0
+        assert conn.execute("SELECT COUNT(*) FROM compliance_requirements").fetchone()[0] > 0
 
-    # Purge the artifact and reconsolidate.
-    purge_path(folder, db_path=db, cache_dir=cache, config_path=cfg, reconsolidate=True)
+    # Purge and reconsolidate.
+    stats = purge_path(folder, db_path=db, cache_dir=cache, config_path=cfg, reconsolidate=True)
+    assert stats.artifact_rows_deleted == 1
+    assert stats.artifacts_purged == 1
 
     with connect(db) as conn:
-        # Knowledge object and graph edges are gone.
+        # Artifact row gone.
+        assert conn.execute("SELECT COUNT(*) FROM artifacts WHERE id='doc_pol'").fetchone()[0] == 0
+        # Raw candidate rows gone.
+        assert conn.execute("SELECT COUNT(*) FROM candidate_requirements WHERE artifact_id='doc_pol'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM candidate_capabilities WHERE artifact_id='doc_pol'").fetchone()[0] == 0
+        # Links gone.
+        assert conn.execute("SELECT COUNT(*) FROM links WHERE source_artifact_id='doc_pol'").fetchone()[0] == 0
+        # Knowledge objects gone.
         assert repo.get_object(conn, "standard_iso_27001") is None
-        # Compliance metadata tables must also be clean.
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM compliance_standards WHERE object_id='standard_iso_27001'"
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            conn.execute("SELECT COUNT(*) FROM compliance_requirements").fetchone()[0]
-            == 0
-        )
+        assert repo.get_object(conn, "capability_access_management") is None
+        # Graph relationships gone.
+        assert conn.execute("SELECT COUNT(*) FROM knowledge_relationships").fetchone()[0] == 0
+        # Evidence and mentions gone.
+        assert conn.execute("SELECT COUNT(*) FROM knowledge_evidence").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM knowledge_mentions").fetchone()[0] == 0
+        # Compliance metadata gone.
+        assert conn.execute("SELECT COUNT(*) FROM compliance_standards").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM compliance_requirements").fetchone()[0] == 0
+    # Extraction cache directory removed.
+    assert not (cache / "doc_pol").exists()

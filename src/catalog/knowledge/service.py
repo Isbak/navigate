@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..db import connect, init_db
+from ..extraction import LINEAGE_FILENAME
 from . import repository as repo
 from .ids import equation_display_name, object_id, requirement_display_name
 from .models import Cluster, ReviewState
@@ -484,6 +485,29 @@ def _object_description(cluster: Cluster) -> str:
     return max(quotes, key=len)[:_DESCRIPTION_MAX]
 
 
+def _page_from_lineage(
+    cache_dir: Path, artifact_id: str, quote: str
+) -> int | None:
+    """Return the page number for ``quote`` from a Docling lineage sidecar.
+
+    Loads ``cache/<artifact_id>/lineage.json`` and returns the ``page`` field
+    of the first element whose ``text`` contains ``quote`` as a substring.
+    Returns ``None`` when the sidecar is absent or no element matches.
+    """
+    lineage_path = cache_dir / artifact_id / LINEAGE_FILENAME
+    if not lineage_path.exists():
+        return None
+    try:
+        data = json.loads(lineage_path.read_text(encoding="utf-8"))
+        for element in data.get("elements", []):
+            text = element.get("text", "")
+            if text and quote in text:
+                return element.get("page")
+    except Exception:  # noqa: BLE001 - lineage is an optional enrichment
+        pass
+    return None
+
+
 def _persist_object(
     conn,
     *,
@@ -493,6 +517,7 @@ def _persist_object(
     status: str,
     now: str,
     stats: ConsolidationStats,
+    cache_dir: Path | None = None,
 ) -> None:
     """Phase 4 + 5: write the object, its mentions, and its evidence.
 
@@ -527,12 +552,17 @@ def _persist_object(
         stats.mentions_linked += 1
         quote = mention.source_text.strip()
         if quote:
+            page = (
+                _page_from_lineage(cache_dir, mention.artifact_id, quote)
+                if cache_dir is not None
+                else None
+            )
             repo.insert_evidence(
                 conn,
                 knowledge_object_id=oid,
                 artifact_id=mention.artifact_id,
                 quote=quote,
-                page_number=None,
+                page_number=page,
                 slide_number=None,
                 confidence=mention.confidence,
                 created_at=now,
@@ -564,6 +594,7 @@ def _persist_object(
 def consolidate(
     db_path: str | Path = "data/catalog.sqlite",
     *,
+    cache_dir: str | Path = "cache",
     force: bool = False,
     config: ResolutionConfig | None = None,
     scoring: ScoringConfig | None = None,
@@ -584,6 +615,7 @@ def consolidate(
 
     config = config or ResolutionConfig()
     scoring = scoring or ScoringConfig()
+    cache_path = Path(cache_dir)
     init_db(db_path)
     now = _utc_now()
     stats = ConsolidationStats()
@@ -692,6 +724,7 @@ def consolidate(
                 status=status,
                 now=now,
                 stats=stats,
+                cache_dir=cache_path,
             )
 
         # Persist the resolved relationships.

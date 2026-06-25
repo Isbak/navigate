@@ -124,6 +124,54 @@ extract → classify → consolidate pipeline as local files.
 > the database tracks which remote items have been downloaded, enabling
 > incremental re-syncs that only fetch new or changed content.
 
+## 7. (Optional) Choose an extraction mode
+
+By default, `catalog extract` uses `mode: fast` — text-only extraction, no API
+calls or extra installs. Two additional modes are available for higher quality:
+
+### mode: enhanced (MarkItDown, office formats)
+
+Converts DOCX, PPTX, and XLSX to Markdown using
+[MarkItDown](https://github.com/microsoft/markitdown) (Microsoft). Tables
+become proper `| col |` Markdown rows visible to the LLM classifier. PDFs
+still use PyMuPDF (unchanged). No ML models; negligible overhead.
+
+```bash
+pip install "knowledge-catalog[markitdown]"
+```
+
+```yaml
+# config/extraction.yml
+mode: enhanced
+```
+
+> **Note:** Install only the base `markitdown` package. Avoid `markitdown[all]`
+> in environments that use a system `cryptography` package — the `[all]` extras
+> pull in pdfminer which can cause a Rust/cffi conflict.
+
+### mode: docling (IBM Docling, all formats)
+
+Uses [IBM Docling](https://github.com/DS4SD/docling) for superior PDF reading
+order, table extraction (including multi-column PDFs), and built-in OCR for
+scanned pages. Also populates `knowledge_evidence.page_number` for every quote
+in the knowledge graph. Requires ~1.5 GB model download on first use.
+
+```bash
+pip install "knowledge-catalog[docling]"
+```
+
+```yaml
+# config/extraction.yml
+mode: docling
+```
+
+> **Trade-off:** Docling loads a DocLayNet layout model (5–15 s cold start,
+> ~400 MB RAM). Extraction is serialised (not parallelised) to avoid concurrent
+> model access. Use `mode: fast` for large batch re-extractions.
+
+See the full [Docling vs MarkItDown study](../docling-markitdown-study.md) for
+benchmark data, dependency analysis, and architectural rationale.
+
 ## Next step
 
 Your files are indexed. Continue with

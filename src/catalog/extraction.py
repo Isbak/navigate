@@ -33,7 +33,7 @@ from .code import detect_language, extract_structure
 from .db import connect, init_db
 from .events import Artifact, ScanEvent, ScanEventBus, ScanStatus
 from .extractors import get_extractor
-from .extractors.config import MODE_FAST
+from .extractors.config import MODE_DOCLING, MODE_FAST
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ EXTRACTED_FILENAME = "extracted.txt"
 LINKS_FILENAME = "links.json"
 METADATA_FILENAME = "metadata.json"
 CODE_STRUCTURE_FILENAME = "code_structure.json"
+LINEAGE_FILENAME = "lineage.json"
 
 
 def extract_text(
@@ -62,6 +63,25 @@ def extract_text(
     if usage_sink is not None and hasattr(extractor, "drain_usage"):
         usage_sink.extend(extractor.drain_usage())
     return text
+
+
+def extract_text_with_lineage(
+    path: Path, mode: str = MODE_FAST
+) -> tuple[str, list[dict] | None]:
+    """Extract text and, when using Docling, per-element lineage.
+
+    Returns ``(text, lineage)`` where ``lineage`` is a list of element dicts
+    (each with ``page``, ``type``, ``text``) or ``None`` for non-Docling modes.
+    """
+    if path.suffix.lower() in {".md", ".txt"} or detect_language(path):
+        return path.read_text(encoding="utf-8", errors="replace"), None
+    extractor = get_extractor(path, mode)
+    if extractor is None:
+        return "", None
+    if mode == MODE_DOCLING and hasattr(extractor, "extract_with_lineage"):
+        text, lineage = extractor.extract_with_lineage(path)
+        return text, lineage
+    return extractor.extract_text(path), None
 
 
 def extract_links_from_text(text: str) -> list[dict[str, str | None]]:
@@ -96,8 +116,12 @@ def extract_to_cache(
     """
 
     path = Path(artifact.path)
+    lineage: list[dict] | None = None
     try:
-        text = extract_text(path, mode, usage_sink=usage_sink)
+        if mode == MODE_DOCLING:
+            text, lineage = extract_text_with_lineage(path, mode)
+        else:
+            text = extract_text(path, mode, usage_sink=usage_sink)
     except Exception:  # noqa: BLE001 - extraction is best-effort
         LOGGER.exception("Text extraction failed for %s", path)
         text = ""
@@ -105,6 +129,12 @@ def extract_to_cache(
     artifact_cache = cache_dir / artifact.id
     artifact_cache.mkdir(parents=True, exist_ok=True)
     (artifact_cache / EXTRACTED_FILENAME).write_text(text, encoding="utf-8")
+
+    if lineage is not None:
+        (artifact_cache / LINEAGE_FILENAME).write_text(
+            json.dumps({"backend": "docling", "elements": lineage}, indent=2),
+            encoding="utf-8",
+        )
 
     raw_links = extract_links_from_text(text)
     (artifact_cache / LINKS_FILENAME).write_text(
@@ -222,6 +252,10 @@ def extract_all(
     the database), so the work is embarrassingly parallel; ``workers=1`` runs the
     original serial path. Returns summary counters.
     """
+
+    # Docling's DocumentConverter is not thread-safe; serialise extraction.
+    if mode == MODE_DOCLING:
+        workers = 1
 
     cache_path = Path(cache_dir)
     id_filter = set(artifact_ids) if artifact_ids else None

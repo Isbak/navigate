@@ -137,6 +137,7 @@ def _cmd_consolidate(args: argparse.Namespace) -> None:
         )
     stats = consolidate(
         args.db,
+        cache_dir=args.cache,
         force=args.force,
         config=resolution_config,
         merge_judge=merge_judge,

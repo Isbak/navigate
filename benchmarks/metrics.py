@@ -160,6 +160,43 @@ class StageResult:
         }
 
 
+def table_recall(text: str, table_markers: list[str]) -> float:
+    """Fraction of expected Markdown table header patterns found in ``text``."""
+    if not table_markers:
+        return 1.0
+    found = sum(1 for m in table_markers if m.lower() in text.lower())
+    return fraction(found, len(table_markers))
+
+
+def reading_order_score(text: str, pairs: list[list[str]]) -> float:
+    """Fraction of ``[before, after]`` pairs where ``before`` precedes ``after``.
+
+    Pairs where either string is absent from ``text`` are counted as failures
+    so a backend that silently drops content does not score artificially high.
+    """
+    if not pairs:
+        return 1.0
+    correct = 0
+    for before, after in pairs:
+        b_idx = text.find(before)
+        a_idx = text.find(after)
+        if b_idx != -1 and a_idx != -1 and b_idx < a_idx:
+            correct += 1
+    return fraction(correct, len(pairs))
+
+
+def verbatim_quote_rate(text: str, quotes: list[str]) -> float:
+    """Fraction of expected verbatim quotes that survive as literal substrings.
+
+    Validates the downstream invariant that ``knowledge_evidence.quote`` values
+    are exact substrings of ``extracted.txt``.
+    """
+    if not quotes:
+        return 1.0
+    found = sum(1 for q in quotes if q in text)
+    return fraction(found, len(quotes))
+
+
 __all__ = [
     "normalize",
     "prf1",
@@ -171,4 +208,7 @@ __all__ = [
     "throughput",
     "performance",
     "StageResult",
+    "table_recall",
+    "reading_order_score",
+    "verbatim_quote_rate",
 ]

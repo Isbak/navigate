@@ -4,10 +4,15 @@ Reads ``config/extraction.yml`` and exposes a small :class:`ExtractionConfig`.
 The loader is tolerant: a missing file (or a missing key) falls back to safe
 ``fast`` defaults so extraction works out of the box and fully offline.
 
-``mode`` selects between the cheap text-only path and the opt-in vision path:
+``mode`` selects the extraction backend:
 
-    fast          text-only extraction, no API calls.
-    high-quality  PDFs additionally get a selective vision pass (see
+    fast          text-only extraction, no API calls (default).
+    enhanced      MarkItDown for office formats (tables + headings in Markdown);
+                  PyMuPDF for PDF. Requires ``pip install knowledge-catalog[markitdown]``.
+    docling       IBM Docling pipeline: superior PDF reading order, table extraction,
+                  built-in OCR, per-element lineage. Requires
+                  ``pip install knowledge-catalog[docling]`` (~1.5 GB models).
+    high-quality  PDFs additionally get a selective Claude vision pass (see
                   :mod:`catalog.extractors.vision_pdf_extractor`).
 """
 
@@ -22,7 +27,9 @@ DEFAULT_EXTRACTION_CONFIG_PATH = Path("config/extraction.yml")
 
 MODE_FAST = "fast"
 MODE_HIGH_QUALITY = "high-quality"
-VALID_MODES = (MODE_FAST, MODE_HIGH_QUALITY)
+MODE_ENHANCED = "enhanced"
+MODE_DOCLING = "docling"
+VALID_MODES = (MODE_FAST, MODE_HIGH_QUALITY, MODE_ENHANCED, MODE_DOCLING)
 
 DEFAULT_DPI = 200
 DEFAULT_MAX_PAGES = 50
@@ -85,5 +92,7 @@ __all__ = [
     "DEFAULT_EXTRACTION_CONFIG_PATH",
     "MODE_FAST",
     "MODE_HIGH_QUALITY",
+    "MODE_ENHANCED",
+    "MODE_DOCLING",
     "VALID_MODES",
 ]

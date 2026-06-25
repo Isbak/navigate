@@ -1,0 +1,166 @@
+{
+  "_comment": "Gold specs for binary fixture extraction. text_markers are case-insensitive substring checks. reading_order_check is a list of [before, after] pairs asserting order in output. table_markers check for Markdown table header rows (present only when backend outputs structured tables).",
+
+  "simple_text.pdf": {
+    "text_markers": [
+      "Introduction to Navigate",
+      "local-first knowledge platform",
+      "Fast offline extraction",
+      "Hyperlink discovery",
+      "Knowledge graph construction"
+    ],
+    "links": ["https://github.com/isbak/navigate"],
+    "table_markers": [],
+    "reading_order_check": [
+      ["Introduction to Navigate", "Key Features"],
+      ["Key Features", "Hyperlink discovery"]
+    ],
+    "verbatim_quote_samples": [
+      "local-first knowledge platform",
+      "Hyperlink discovery"
+    ]
+  },
+
+  "multi_column.pdf": {
+    "text_markers": [
+      "Section A",
+      "Section B",
+      "Architecture",
+      "Performance",
+      "extraction pipeline"
+    ],
+    "links": [],
+    "table_markers": [],
+    "reading_order_check": [
+      ["Section A", "Section B"]
+    ],
+    "verbatim_quote_samples": []
+  },
+
+  "table_heavy.pdf": {
+    "text_markers": [
+      "Extraction Backend Comparison",
+      "MarkItDown",
+      "Docling",
+      "Current"
+    ],
+    "links": ["https://docling.example.com"],
+    "table_markers": [],
+    "reading_order_check": [
+      ["Extraction Backend Comparison", "Current"],
+      ["Current", "MarkItDown"],
+      ["MarkItDown", "Docling"]
+    ],
+    "verbatim_quote_samples": [
+      "Extraction Backend Comparison"
+    ]
+  },
+
+  "hyperlink.pdf": {
+    "text_markers": [
+      "Reference Documents",
+      "architecture specification",
+      "API reference",
+      "deployment guide"
+    ],
+    "links": [
+      "https://docs.example.com/architecture",
+      "https://api.example.com/reference",
+      "https://ops.example.com/deploy"
+    ],
+    "table_markers": [],
+    "reading_order_check": [
+      ["architecture specification", "API reference"],
+      ["API reference", "deployment guide"]
+    ],
+    "verbatim_quote_samples": [
+      "Reference Documents"
+    ]
+  },
+
+  "table_docx.docx": {
+    "text_markers": [
+      "Design Specification",
+      "Component Overview",
+      "architecture for the catalog service"
+    ],
+    "links": [
+      "https://confluence.example.com/architecture",
+      "https://jira.example.com/ADR-001"
+    ],
+    "table_markers_enhanced_only": [
+      "Component",
+      "Responsibility",
+      "Scanner",
+      "Extractor",
+      "Classifier"
+    ],
+    "table_markers": [],
+    "reading_order_check": [
+      ["Design Specification", "Component Overview"]
+    ],
+    "verbatim_quote_samples": [
+      "Design Specification"
+    ]
+  },
+
+  "simple_docx.docx": {
+    "text_markers": [
+      "Release Governance Policy",
+      "Architecture Board",
+      "release governance checklist",
+      "Architecture Decision Record",
+      "Security review"
+    ],
+    "links": ["https://confluence.example.com/release-governance"],
+    "table_markers": [],
+    "reading_order_check": [
+      ["Release Governance Policy", "Approval Process"],
+      ["Approval Process", "Performance benchmarks"]
+    ],
+    "verbatim_quote_samples": [
+      "release governance checklist",
+      "Architecture Decision Record"
+    ]
+  },
+
+  "slide_deck.pptx": {
+    "text_markers": [
+      "Platform Architecture",
+      "Extraction Pipeline",
+      "Scanner",
+      "Extractor",
+      "Classifier",
+      "fast",
+      "enhanced",
+      "docling",
+      "high-quality"
+    ],
+    "links": ["https://docs.example.com/extraction"],
+    "table_markers": [],
+    "reading_order_check": [
+      ["Platform Architecture", "Extraction Pipeline"]
+    ],
+    "verbatim_quote_samples": [
+      "Platform Architecture",
+      "Extraction Pipeline"
+    ]
+  },
+
+  "data_workbook.xlsx": {
+    "text_markers": [
+      "Extraction throughput",
+      "Link discovery precision",
+      "Classification recall",
+      "Knowledge graph coverage",
+      "In Progress"
+    ],
+    "links": [
+      "https://grafana.example.com/d/perf-dashboard",
+      "https://confluence.example.com/sla-targets"
+    ],
+    "table_markers": [],
+    "reading_order_check": [],
+    "verbatim_quote_samples": []
+  }
+}

@@ -34,6 +34,17 @@ def _hyperlink_address(shape: Any) -> str | None:
     return getattr(hyperlink, "address", None)
 
 
+def extract_pptx_hyperlinks(path: Path) -> list[str]:
+    """Return embedded hyperlink addresses from a PPTX file."""
+    prs = Presentation(path)
+    return [
+        address
+        for slide in prs.slides
+        for shape in _iter_shapes(slide.shapes)
+        if (address := _hyperlink_address(shape))
+    ]
+
+
 class PptxExtractor:
     def extract_text(self, path: Path) -> str:
         prs = Presentation(path)

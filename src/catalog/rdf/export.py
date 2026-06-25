@@ -157,6 +157,8 @@ def build_provenance_graph(conn: sqlite3.Connection) -> Graph:
         g.add((ev, KG["confidence"], _confidence_literal(row["confidence"])))
         if row["quote"]:
             g.add((ev, KG["quote"], Literal(row["quote"])))
+        if row["page_number"] is not None:
+            g.add((ev, KG["pageNumber"], Literal(int(row["page_number"]))))
         subject = object_uri(row["object_type"], row["object_id"])
         g.add((subject, KG[SUPPORTED_BY], ev))
     return g

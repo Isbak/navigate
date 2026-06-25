@@ -53,6 +53,19 @@ dev = [
   # Tests exercise the real tree-sitter path, so the grammars come along.
   "knowledge-catalog[code]",
 ]
+# MarkItDown (Microsoft): lightweight Markdown converter for office formats.
+# Provides table structure and heading preservation in `mode: enhanced`.
+# Install with `pip install knowledge-catalog[markitdown]`.
+markitdown = [
+  "markitdown>=0.1",
+]
+# Docling (IBM): AI-based document pipeline with DocLayNet layout model.
+# Provides superior PDF reading order, table extraction, built-in OCR, and
+# per-element lineage in `mode: docling`. Downloads ~1.5 GB models on first use.
+# Install with `pip install knowledge-catalog[docling]`.
+docling = [
+  "docling>=2.0",
+]
 # The MCP grounding server (`catalog mcp`). Optional so the base install is
 # unchanged; imported lazily in catalog.mcp.server.
 mcp = [
@@ -68,7 +81,7 @@ where = ["src", "."]
 include = ["catalog*", "benchmarks*"]
 
 [tool.setuptools.package-data]
-benchmarks = ["corpus/docs/*", "corpus/gold/*.json", "thresholds.json"]
+benchmarks = ["corpus/docs/*", "corpus/gold/*.json", "corpus/binary_fixtures/*", "thresholds.json"]
 
 [tool.ruff]
 target-version = "py311"

@@ -5,6 +5,26 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 
+def extract_xlsx_hyperlinks(path: Path) -> list[str]:
+    """Return embedded hyperlink targets from an XLSX workbook.
+
+    read_only=False is required: openpyxl does not expose hyperlink attributes
+    on ReadOnlyCell/EmptyCell objects.
+    """
+    wb = load_workbook(path, read_only=False, data_only=True)
+    targets: list[str] = []
+    try:
+        for ws in wb.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    hyperlink = getattr(cell, "hyperlink", None)
+                    if hyperlink and hyperlink.target:
+                        targets.append(hyperlink.target)
+    finally:
+        wb.close()
+    return targets
+
+
 class XlsxExtractor:
     def extract_text(self, path: Path) -> str:
         # ``read_only=True`` is more memory friendly, but openpyxl does not load

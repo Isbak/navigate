@@ -23,11 +23,13 @@ LOGGER = logging.getLogger(__name__)
 
 _CONVERTER = None
 _IMPORT_ERROR: ImportError | None = None
+DOCLING_AVAILABLE: bool = False
 
 try:
     from docling.document_converter import DocumentConverter
 
     _CONVERTER = DocumentConverter()
+    DOCLING_AVAILABLE = True
 except ImportError as _exc:
     _IMPORT_ERROR = _exc
 
@@ -61,7 +63,7 @@ class DoclingExtractor:
         doc = result.document
 
         lineage: list[dict] = []
-        for item in doc.iterate_items():
+        for item, _level in doc.iterate_items():
             prov = getattr(item, "prov", None)
             page = prov[0].page_no if prov else None
             lineage.append(

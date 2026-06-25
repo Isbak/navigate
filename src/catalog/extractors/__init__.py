@@ -30,18 +30,20 @@ def get_extractor(path: Path, mode: str = MODE_FAST):
     suffix = path.suffix.lower()
 
     if mode == MODE_DOCLING and suffix in _ALL_SUPPORTED:
-        try:
-            from .docling_extractor import DoclingExtractor
+        from .docling_extractor import DOCLING_AVAILABLE, DoclingExtractor
+        if DOCLING_AVAILABLE:
             return DoclingExtractor()
-        except ImportError:
-            pass  # fall through to standard extractors
+        # fall through to standard extractors
 
     if suffix == ".pdf" and mode == MODE_HIGH_QUALITY:
         return VisionPdfExtractor()
 
     if mode == MODE_ENHANCED and suffix in _OFFICE_SUFFIXES:
         try:
+            import markitdown as _markitdown_check  # noqa: F401  # availability probe
+
             from .markitdown_extractor import MarkItDownExtractor
+
             return MarkItDownExtractor()
         except ImportError:
             pass  # fall through to standard extractors

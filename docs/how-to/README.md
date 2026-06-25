@@ -21,6 +21,7 @@ down the "Build the graph" rows — that is the core pipeline end to end.
 | --- | --- |
 | Find and classify the links inside my documents | [Discover and classify links](discover-and-classify-links.md) |
 | Turn documents into a reviewed knowledge graph | [Build a knowledge graph](build-a-knowledge-graph.md) |
+| Remove a file and clean up all its derived knowledge | [Remove artifacts](remove-artifacts.md) |
 | Index a code repository, not just documents | [docs/code-indexing.md](../code-indexing.md#how-to-use) |
 | Audit how classification and consolidation decided things | [docs/classification-audit.md](../classification-audit.md) |
 | Keep LLM cost and latency down | [docs/llm-optimization.md](../llm-optimization.md) |

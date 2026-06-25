@@ -24,7 +24,8 @@ Command area → doc to update:
 | --- | --- |
 | `init-db`, `scan`, `watch`, `stats`, `show-duplicates` | `docs/how-to/catalog-your-files.md` |
 | `extract`, `discover-links`, `link-stats`, `show-links`, `show-stale-links`, `export-links-csv` | `docs/how-to/discover-and-classify-links.md` |
-| `classify` (+ `config/domains.yml`), `classification-stats`, `consolidate`, `clean-source`, `knowledge-stats`, review/approve commands | `docs/how-to/build-a-knowledge-graph.md` |
+| `classify` (+ `config/domains.yml`), `classification-stats`, `consolidate`, `knowledge-stats`, review/approve commands | `docs/how-to/build-a-knowledge-graph.md` |
+| `clean-source` (artifact removal, purge, reconsolidate) | `docs/how-to/remove-artifacts.md` (+ `docs/how-to/build-a-knowledge-graph.md`) |
 | `graph *` | `docs/how-to/explore-the-knowledge-graph.md` |
 | `ask`, `explain`, `compare`, `impact`, `path-reason` | `docs/how-to/ask-questions-with-graphrag.md` |
 | `governance *` | `docs/how-to/govern-your-knowledge.md` |

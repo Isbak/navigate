@@ -3,7 +3,7 @@
 # Extraction turns raw files (PDF, DOCX, PPTX, XLSX, ...) into the plain text
 # the rest of the pipeline reads. Two modes are available:
 #
-#   fast          text-only extraction (offline, no API calls). Good default.
+#   fast          text-only extraction (offline, no API calls).
 #   high-quality  for PDFs, a vision pass transcribes the pages that the fast
 #                 pass cannot read well (scanned pages, figures, and equations
 #                 rendered as images) into Markdown + LaTeX. This calls the
@@ -14,7 +14,7 @@
 # pages it cannot read well are rendered to images and sent to the model, so
 # cost stays proportional to the suspect pages rather than the whole document.
 
-mode: fast            # fast | high-quality
+mode: high-quality    # fast | high-quality
 
 vision:
   # Render resolution for flagged pages. Higher is sharper but larger/slower.

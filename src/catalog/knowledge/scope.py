@@ -14,6 +14,12 @@ The unit of scope is the content-addressed ``artifact_id``. An id is in scope wh
 
 Path containment is decided with :func:`os.path.commonpath` rather than a string
 prefix so that ``/foo`` does not spuriously match ``/foobar``.
+
+:func:`live_artifact_ids` is the unscoped counterpart: it returns every
+non-``DELETED`` file-backed id plus curated imports, without any root filter.
+It is used by consolidation when no source-folder scoping is requested so that
+``DELETED`` artifacts are always excluded regardless of the ``--all-sources``
+flag.
 """
 
 from __future__ import annotations
@@ -78,24 +84,46 @@ def in_scope_artifact_ids(
             allowed.add(row["id"])
 
     # Curated imports: any candidate-table id that has no artifacts row at all.
-    for row in conn.execute(
-        """
-        SELECT DISTINCT artifact_id AS id FROM (
-            SELECT artifact_id FROM candidate_entities
-            UNION SELECT artifact_id FROM candidate_capabilities
-            UNION SELECT artifact_id FROM candidate_decisions
-            UNION SELECT artifact_id FROM candidate_risks
-            UNION SELECT artifact_id FROM candidate_relationships
-            UNION SELECT artifact_id FROM candidate_requirements
-            UNION SELECT artifact_id FROM candidate_equations
-        )
-        WHERE artifact_id IS NOT NULL
-          AND artifact_id NOT IN (SELECT id FROM artifacts)
-        """
-    ):
+    for row in conn.execute(_CURATED_IMPORTS_SQL):
         allowed.add(row["id"])
 
     return allowed
 
 
-__all__ = ["expand_source_roots", "in_scope_artifact_ids"]
+_CURATED_IMPORTS_SQL = """
+    SELECT DISTINCT artifact_id AS id FROM (
+        SELECT artifact_id FROM candidate_entities
+        UNION SELECT artifact_id FROM candidate_capabilities
+        UNION SELECT artifact_id FROM candidate_decisions
+        UNION SELECT artifact_id FROM candidate_risks
+        UNION SELECT artifact_id FROM candidate_relationships
+        UNION SELECT artifact_id FROM candidate_requirements
+        UNION SELECT artifact_id FROM candidate_equations
+    )
+    WHERE artifact_id IS NOT NULL
+      AND artifact_id NOT IN (SELECT id FROM artifacts)
+"""
+
+
+def live_artifact_ids(conn: sqlite3.Connection) -> set[str]:
+    """Return every artifact id that may be consolidated, ignoring source-folder
+    scoping but still honouring ``DELETED`` status.
+
+    This is the unscoped counterpart to :func:`in_scope_artifact_ids`: all
+    non-``DELETED`` file-backed ids plus curated imports (ids that have no
+    ``artifacts`` row at all) are returned. Used by :func:`consolidate` when
+    ``source_paths`` is ``None`` so that the ``--all-sources`` flag disables
+    *folder* scoping without accidentally resurrecting ``DELETED`` artifacts.
+    """
+
+    allowed: set[str] = set()
+    for row in conn.execute(
+        "SELECT DISTINCT id FROM artifacts WHERE scan_status != 'DELETED'"
+    ):
+        allowed.add(row["id"])
+    for row in conn.execute(_CURATED_IMPORTS_SQL):
+        allowed.add(row["id"])
+    return allowed
+
+
+__all__ = ["expand_source_roots", "in_scope_artifact_ids", "live_artifact_ids"]

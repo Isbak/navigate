@@ -176,3 +176,64 @@ def test_purge_nonexistent_path_is_noop(tmp_path):
     )
     assert stats.artifact_rows_deleted == 0
     assert stats.reconsolidated is False
+
+
+def _seed_requirement(conn, artifact_id, standard_name, clause_ref, text):
+    conn.execute(
+        """
+        INSERT INTO candidate_requirements(
+            artifact_id, standard_name, standard_version, clause_ref, title,
+            requirement_text, obligation_level, confidence, supporting_text,
+            knowledge_type, review_status, model, created_at
+        ) VALUES (?, ?, '1.0', ?, '', ?, 'MANDATORY', 0.9, ?,
+                  'OBSERVATION', 'NEW', 'stub', 't')
+        """,
+        (artifact_id, standard_name, clause_ref, text, text),
+    )
+
+
+def test_purge_removes_compliance_metadata(tmp_path):
+    """Compliance metadata rows are cleaned up after purge + reconsolidate."""
+    db = tmp_path / "catalog.sqlite"
+    cache = tmp_path / "cache"
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    cfg = _write_config(tmp_path)  # empty sources → scoped reconsolidate keeps nothing
+
+    init_db(db)
+    with connect(db) as conn:
+        _insert_artifact(conn, path=folder / "policy.txt", artifact_id="doc_pol")
+        _seed_requirement(conn, "doc_pol", "ISO 27001", "A.9.1", "Access control")
+        conn.commit()
+
+    # Consolidate first so knowledge objects + compliance metadata are created.
+    consolidate(db, source_paths=None)
+    with connect(db) as conn:
+        assert repo.get_object(conn, "standard_iso_27001") is not None
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM compliance_standards WHERE object_id='standard_iso_27001'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute("SELECT COUNT(*) FROM compliance_requirements").fetchone()[0] > 0
+        )
+
+    # Purge the artifact and reconsolidate.
+    purge_path(folder, db_path=db, cache_dir=cache, config_path=cfg, reconsolidate=True)
+
+    with connect(db) as conn:
+        # Knowledge object and graph edges are gone.
+        assert repo.get_object(conn, "standard_iso_27001") is None
+        # Compliance metadata tables must also be clean.
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM compliance_standards WHERE object_id='standard_iso_27001'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute("SELECT COUNT(*) FROM compliance_requirements").fetchone()[0]
+            == 0
+        )

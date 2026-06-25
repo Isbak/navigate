@@ -146,6 +146,18 @@ catalog clean-source --path PATH                       # purge + reconsolidate
 catalog clean-source --path PATH --no-reconsolidate    # purge without rebuilding
 ```
 
+`clean-source` hard-deletes the artifact rows and candidate data, then
+reconsolidates. Knowledge objects, standard-driven relationships (`mandated_by`,
+`specifies`, `appears_in`), and compliance metadata rows
+(`compliance_standards`, `compliance_requirements`, `compliance_equations`)
+derived solely from the removed files are all cleaned up automatically.
+
+If you remove files by deleting them from disk instead, `catalog scan` marks
+them `DELETED` and the next `catalog consolidate` (in any mode, including
+`--all-sources`) drops their knowledge objects and relationships. Their raw
+`candidate_*` rows are preserved so the content returns to the graph if the
+files are restored; run `clean-source` to delete those rows permanently.
+
 ## 4. Review and approve
 
 Objects and relationships start as `PROPOSED`. **Only `APPROVED` items are

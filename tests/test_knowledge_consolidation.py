@@ -470,3 +470,69 @@ def test_rejected_object_excluded_from_graph(tmp_path):
     assert "platform_salesforce" not in ids
     # The edge touching the rejected node is dropped too.
     assert edges == []
+
+
+# -- DELETED artifact exclusion -----------------------------------------------
+
+def _insert_artifact(conn, *, path, artifact_id, scan_status="UNCHANGED"):
+    conn.execute(
+        """
+        INSERT INTO artifacts(
+            path, id, filename, file_type, size_bytes, scan_status
+        ) VALUES (?, ?, ?, 'txt', 1, ?)
+        """,
+        (str(path), artifact_id, str(path).split("/")[-1], scan_status),
+    )
+
+
+def test_unscoped_consolidation_excludes_deleted_artifacts(tmp_path):
+    """consolidate(source_paths=None) must not recreate objects from DELETED artifacts."""
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    src = tmp_path / "src"
+    src.mkdir()
+
+    with connect(db) as conn:
+        _insert_artifact(conn, path=str(src / "live.txt"), artifact_id="doc_live")
+        _insert_artifact(
+            conn,
+            path=str(src / "gone.txt"),
+            artifact_id="doc_gone",
+            scan_status="DELETED",
+        )
+        _seed_capability(conn, "doc_live", "Live Capability")
+        _seed_capability(conn, "doc_gone", "Gone Capability")
+        conn.commit()
+
+    consolidate(db, source_paths=None)
+
+    with connect(db) as conn:
+        assert repo.get_object(conn, "capability_live_capability") is not None
+        assert repo.get_object(conn, "capability_gone_capability") is None
+
+
+def test_unscoped_consolidation_excludes_deleted_standard_driven_relations(tmp_path):
+    """Standard-driven relations (mandated_by) for DELETED artifacts must not be created."""
+    db = tmp_path / "catalog.sqlite"
+    init_db(db)
+    src = tmp_path / "src"
+    src.mkdir()
+
+    with connect(db) as conn:
+        _insert_artifact(
+            conn,
+            path=str(src / "gone.txt"),
+            artifact_id="doc_gone",
+            scan_status="DELETED",
+        )
+        _seed_requirement(conn, "doc_gone", "ISO 27001", "A.9.1", "Access control")
+        conn.commit()
+
+    consolidate(db, source_paths=None)
+
+    with connect(db) as conn:
+        assert repo.get_object(conn, "standard_iso_27001") is None
+        rels = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_relationships WHERE predicate='mandated_by'"
+        ).fetchone()[0]
+        assert rels == 0

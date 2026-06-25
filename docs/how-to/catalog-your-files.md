@@ -189,6 +189,14 @@ found:
 - `CHANGED` — known path whose content hash changed
 - `UNCHANGED` — known path with identical content
 - `DELETED` — previously indexed path no longer present on disk
+
+When a file disappears from disk and `scan` marks it `DELETED`, its raw
+`candidate_*` rows are kept (so the document returns to the knowledge graph
+if the file comes back). The next `catalog consolidate` run — in any mode,
+including `--all-sources` — automatically excludes `DELETED` artifacts and
+drops any knowledge objects or relationships that were derived solely from
+them. Use `catalog clean-source <path>` to also remove the candidate rows
+permanently.
 - `DUPLICATE` — content hash already seen at another path during the scan
 
 The `artifacts` table holds stable document metadata keyed by source `path`:

@@ -102,9 +102,18 @@ in the client's environment to enable the `ask` tool.
 
 ## What the agent can do
 
-The server publishes seven tools. Six are deterministic, offline, and need no API
-key; `ask` is the one LLM-backed tool (it degrades gracefully to
-`{"available": false}` when no provider is configured):
+The server publishes eleven tools (ten offline, one LLM-backed). `ask` degrades
+gracefully to `{"available": false}` when no provider is configured.
+
+### Discovery — start here
+
+| Tool | What the agent gets |
+| --- | --- |
+| `graph_schema` | types and predicates that exist in the graph; total node/edge counts |
+| `list_objects(type_filter?, limit, offset)` | all objects, optionally by type, paginated |
+| `domains` | per-type summary: object count, relationship count, most-central nodes |
+
+### Traversal and reasoning
 
 | Tool | Needs LLM? | What the agent gets |
 | --- | :---: | --- |
@@ -112,9 +121,19 @@ key; `ask` is the one LLM-backed tool (it degrades gracefully to
 | `get_object` | no | one object's type, description, confidence, evidence count |
 | `neighbors` | no | directly connected objects grouped by relationship |
 | `impact` | no | what a change may affect, grouped by object type |
+| `get_subgraph(depth=2)` | no | all nodes and edges within N hops — batch neighbourhood |
 | `find_path` | no | shortest relationship path between two objects |
 | `evidence_for` | no | supporting evidence quotes (artifact, quote, confidence) |
 | `ask` | yes | a graph-first, cited answer with a confidence band |
+
+### Recommended call order for an agent that doesn't know the graph yet
+
+```
+graph_schema()          → discover what types and predicates exist
+list_objects("Module")  → enumerate all modules (or another type from schema)
+get_subgraph(<id>, 2)   → pull the 2-hop neighbourhood of an interesting node
+ask("…")                → ask a natural-language question over the grounded context
+```
 
 Why this beats free-association: retrieval is **graph-first and mandatory**, only
 **approved** knowledge is exposed, and every answer is traceable to evidence — so

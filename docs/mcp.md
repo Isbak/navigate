@@ -45,17 +45,28 @@ defaults to `queries`.
 
 ## Tools
 
+### Discovery tools — start here when the agent doesn't know what's in the graph
+
+| Tool | What it returns |
+|------|-----------------|
+| `graph_schema()` | distinct object types (with counts) and predicates; total node/edge counts |
+| `list_objects(type_filter="", limit=50, offset=0)` | paginated objects, optionally filtered by type — each entry carries id, label, type, confidence |
+| `domains()` | per-type summary: object count, relationship count, and the 5 most-central nodes |
+
+### Traversal tools — navigate once you have object ids
+
 | Tool | Needs LLM? | What it returns |
 |------|:---------:|-----------------|
 | `search_knowledge(term)` | no | objects whose label/description match `term` (id, label, type, description) |
 | `get_object(object_id)` | no | one object's type, description, confidence, evidence count (accepts an id **or** a name) |
 | `neighbors(object_id)` | no | directly connected objects grouped by relationship predicate |
 | `impact(object_id)` | no | what a change may affect, neighbours grouped by object type |
+| `get_subgraph(object_id, depth=2)` | no | all nodes and edges within *depth* hops (up to 4); replaces N sequential `neighbors` calls |
 | `find_path(source, target)` | no | shortest relationship path between two objects |
 | `evidence_for(object_id)` | no | supporting evidence quotes (artifact, quote, confidence) |
 | `ask(question, depth=2)` | yes | a graph-first, cited answer with a confidence band |
 
-The graph-first tools are deterministic and run fully offline against the
+All graph tools are deterministic and run fully offline against the
 in-memory rdflib projection built from SQLite. `ask` is the one tool that calls an
 external LLM; it uses the provider in `config/llm.yml` (`ANTHROPIC_API_KEY` /
 `OPENAI_API_KEY`, or a local Ollama model). When GraphRAG is disabled
@@ -64,9 +75,9 @@ external LLM; it uses the provider in `config/llm.yml` (`ANTHROPIC_API_KEY` /
 the graph-first tools. `ask` token usage is priced and recorded like the CLI/API
 paths, so it shows up in `catalog cost-report`.
 
-`get_object` / `neighbors` / `impact` / `find_path` / `evidence_for` accept either
-a stable object id (`capability_release_governance`) or a human name
-(`"Release Governance"`); ambiguous or unknown names come back with
+`get_object` / `neighbors` / `impact` / `find_path` / `evidence_for` /
+`get_subgraph` accept either a stable object id (`capability_release_governance`)
+or a human name (`"Release Governance"`); ambiguous or unknown names come back with
 `found: false` and a `candidates` list.
 
 ### Write tools (opt-in, policy-gated)

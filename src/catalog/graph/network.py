@@ -157,6 +157,68 @@ def impact(graph: nx.DiGraph, node_id: str) -> dict[str, list[dict]]:
     return grouped
 
 
+def object_types(graph: nx.DiGraph) -> list[dict]:
+    """Distinct object types in the graph, with member counts, sorted by name."""
+
+    counts: dict[str, int] = {}
+    for _, data in graph.nodes(data=True):
+        counts[data.get("type", "Unknown")] = counts.get(data.get("type", "Unknown"), 0) + 1
+    return [{"name": t, "count": c} for t, c in sorted(counts.items())]
+
+
+def nodes_by_type(graph: nx.DiGraph, type_filter: str | None = None) -> list[dict]:
+    """All approved objects, optionally filtered by type, sorted by label.
+
+    Each entry carries ``id``, ``label``, ``type``, and ``confidence`` so callers
+    can page through without fetching full object detail.
+    """
+
+    result: list[dict] = []
+    for node_id, data in graph.nodes(data=True):
+        if type_filter is not None and data.get("type", "") != type_filter:
+            continue
+        result.append(
+            {
+                "id": node_id,
+                "label": data.get("label", node_id),
+                "type": data.get("type", ""),
+                "confidence": round(data.get("confidence", 0.0), 4),
+            }
+        )
+    result.sort(key=lambda n: n["label"].lower())
+    return result
+
+
+def ego_subgraph(graph: nx.DiGraph, node_id: str, depth: int) -> dict | None:
+    """Nodes and edges within *depth* hops of *node_id* (direction-agnostic).
+
+    Returns ``{"nodes": [...], "edges": [...]}`` or ``None`` when *node_id* is
+    not in the graph.  Each node entry mirrors :func:`nodes_by_type`; each edge
+    entry is ``{"from", "to", "predicate"}``.
+    """
+
+    if node_id not in graph:
+        return None
+    undirected = graph.to_undirected(as_view=True)
+    ego = nx.ego_graph(undirected, node_id, radius=depth)
+    nodes = [
+        {
+            "id": n,
+            "label": graph.nodes[n].get("label", n),
+            "type": graph.nodes[n].get("type", ""),
+            "confidence": round(graph.nodes[n].get("confidence", 0.0), 4),
+        }
+        for n in ego.nodes()
+    ]
+    nodes.sort(key=lambda n: n["label"].lower())
+    edges = [
+        {"from": src, "to": tgt, "predicate": data["predicate"]}
+        for src, tgt, data in graph.edges(data=True)
+        if src in ego and tgt in ego
+    ]
+    return {"nodes": nodes, "edges": edges}
+
+
 def compute_metrics(graph: nx.DiGraph, top: int = 10) -> dict:
     """Degree/betweenness centrality, components, density and clusters.
 
@@ -223,5 +285,8 @@ __all__ = [
     "shortest_path",
     "neighbors",
     "impact",
+    "object_types",
+    "nodes_by_type",
+    "ego_subgraph",
     "compute_metrics",
 ]
